@@ -1,0 +1,51 @@
+hypoDD_2
+* hypoDD.inp - input control file for hypoDD (v2 format)
+* cross correlation diff times (blank line if not using):
+
+*
+* catalog travel time diff times:
+dt.ct
+*
+* event file:
+event.dat
+*
+* station file:
+station.dat
+*
+*--- output file selection
+* original locations (before relocation):
+hypoDD.loc
+* relocations (relocated):
+hypoDD.reloc
+* station information:
+hypoDD.sta
+* residuals:
+hypoDD.res
+* source parameters:
+hypoDD.src
+*
+*
+*--- data type selection
+* IDAT IPHASE MINOBS (0=CC, 1=CT, 2=CC&CT; 1=P, 2=S, 3=P&S)
+1 3 1
+*
+* Distance and clustering parameters
+* MAXDIST MAXSEP MINOBS MAXNGH
+500.0 10.0 8 10
+*
+* Iteration control
+* ISTART ISOLV (1=from catalog, 2=cluster centroid; 1=SVD, 2=LSQR)
+1 2
+*
+* Weighting
+* WTCCP WTCCS WTCTP WTCTS WDCC WDCT WRCC WRCT
+1.00 0.50 1.00 0.50 8.0 8.0 -9 -9
+*
+* Iteration parameters
+* NITER DAMP
+5 100.0
+*
+* 1D Velocity model
+* # of layers, Vp (km/s), Vp/Vs ratio
+1
+6.00 1.73
