@@ -2,7 +2,7 @@
 Simple test script to convert CSV to HypoDD formats
 """
 
-from csv_to_hypodd import csv_to_pha, csv_to_cc, create_event_id_mapping, create_station_file, load_catalog
+from softwares.hypodd_pywrapper.scripts.csv_hypodd import csv_to_pha, csv_to_cc, create_event_id_mapping, create_station_file, load_catalog
 
 # Input files
 csv_file = '../data/input_csvs/nc73818801_fmf_detections_phase_picks.csv'
