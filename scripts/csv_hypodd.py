@@ -239,7 +239,8 @@ def reloc_to_csv(reloc_file, output_dir=None, method_suffix='', event_id_mapping
     """
     # Set default output directory
     if output_dir is None:
-        output_dir = '.'
+        # same path as input reloc file
+        output_dir = os.path.dirname(reloc_file)
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -324,7 +325,7 @@ def reloc_to_csv(reloc_file, output_dir=None, method_suffix='', event_id_mapping
     
     # Generate output filename
     base_name = os.path.basename(reloc_file).replace('.reloc', '')
-    output_file = f'{output_dir}/{base_name}{method_suffix}.csv'
+    output_file = os.path.abspath(f'{output_dir}/{base_name}{method_suffix}.csv')
     
     # Save to CSV
     df.to_csv(output_file, index=False)

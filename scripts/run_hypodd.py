@@ -7,12 +7,11 @@ from compare_utils import compare_relocations, run_comparison_test
 # Paths
 script_dir  = os.path.dirname(os.path.abspath(__file__))
 HYPODD_ROOT = os.path.abspath(f'{script_dir}/../HypoDD-2.1b')
-# RUN_DIR     = '/N/u/mdaislam/Quartz/Arif-projects/softwares/hypodd_pywrapper/HypoDD-2.1b/examples/run_detections_test' 
-RUN_DIR     = os.path.abspath(f'{script_dir}/../data/runs/run_detections_2020')
+RUN_DIR     = os.path.abspath(f'{script_dir}/../data/runs/run_detections_test')
 EXAMPLE_DIR = os.path.abspath(f'{script_dir}/../HypoDD-2.1b/examples/example2')
 
 # CSV inputs
-input_dir   = f'{RUN_DIR}/../input_csvs'
+input_dir   = f'{script_dir}/../data/input_csvs'
 CSV_FILE    = f'{input_dir}/nc73818801_fmf_detections_phase_picks.csv'
 STATION_CSV = f'{input_dir}/stations_2000_onshore_permanent_50km_cleaned_2022.csv'
 CATALOG_CSV = f'{input_dir}/yoon_shelly_ferndale-2022-12-01.csv'
@@ -142,60 +141,34 @@ def prepare_inputs_catalog_only():
 
 
 if __name__ == '__main__':
-    COMMANDS = {
-        'compile': compile_hypodd,
-        'example': run_example,
-        'prepare': prepare_inputs,
-        'prepare_catalog': prepare_inputs_catalog_only,
-        'ph2dt': run_ph2dt,
-    }
-    
-    if len(sys.argv) < 2:
-        # Default: run full workflow
-        prepare_inputs()
-        run_ph2dt()
-        run_hypodd('hypoDD.inp')
-        reloc_to_csv(f'{RUN_DIR}/hypoDD.reloc', event_id_mapping_file=f'{RUN_DIR}/event_id_mapping.csv')
-        sys.exit(0)
-    
-    cmd = sys.argv[1]
-    
-    # Simple commands (no arguments)
-    if cmd in COMMANDS:
-        COMMANDS[cmd]()
-    
-    # hypodd command (requires .inp file)
-    elif cmd == 'hypodd':
-        inp_file = sys.argv[2] if len(sys.argv) > 2 else 'hypoDD.inp'
-        run_hypodd(inp_file)
-    
-    # convert command (optional .reloc file)
-    elif cmd == 'convert':
-        if len(sys.argv) > 2:
-            reloc_file = sys.argv[2]
-            method_suffix = sys.argv[3] if len(sys.argv) > 3 else ''
-            reloc_to_csv(reloc_file, method_suffix=method_suffix, 
-                        event_id_mapping_file=f'{RUN_DIR}/event_id_mapping.csv')
+    hypoinp_file = 'hypoDD_my2.inp'
+    hypoout_file = f'{RUN_DIR}/hypoDD.reloc'
+    try:
+        if sys.argv[1] == 'compile':
+            compile_hypodd()
+        elif sys.argv[1] == 'example':
+            run_example()
+        elif sys.argv[1] == 'prepare':
+            prepare_inputs()
+        elif sys.argv[1] == 'prepare_catalog':
+            prepare_inputs_catalog_only()
+        elif sys.argv[1] == 'ph2dt':
+            run_ph2dt()
+        elif sys.argv[1] == 'hypodd':
+            run_hypodd(hypoinp_file)
+        elif sys.argv[1] == 'convert':
+            reloc_to_csv(hypoout_file, event_id_mapping_file=f'{RUN_DIR}/event_id_mapping.csv')
         else:
-            print("Usage: python run_hypodd.py convert <reloc_file> [suffix]")
-            sys.exit(1)
-    
-    # compare/test_comparison command
-    elif cmd in ['compare', 'test_comparison']:
-        run_comparison_test(RUN_DIR, HYPODD_ROOT, prepare_inputs, prepare_inputs_catalog_only,
-                          run_ph2dt, run_hypodd, reloc_to_csv)
-    
-    # Unknown command - show help
-    else:
-        print("Usage: python run_hypodd.py <command> [args]")
-        print("\nCommands:")
-        print("  compile             - Compile HypoDD Fortran codes")
-        print("  example             - Run HypoDD example2 test")
-        print("  prepare             - Convert CSV to HypoDD input files")
-        print("  prepare_catalog     - Convert CSV with lag corrections")
-        print("  ph2dt               - Run ph2dt to create differential times")
-        print("  hypodd [inp_file]   - Run hypoDD relocation (default: hypoDD.inp)")
-        print("  convert <file> [sfx]- Convert .reloc to CSV")
-        print("  compare             - Run both CC and catalog methods and compare")
-        print("\nDefault (no command): prepare → ph2dt → hypodd → convert")
-        sys.exit(1)
+            print("Usage: python run_hypodd.py <command> [args]")
+            print("\nCommands:")
+            print("  compile             - Compile HypoDD Fortran codes")
+            print("  example             - Run HypoDD example2 test")
+            print("  prepare             - Convert CSV to HypoDD input files")
+            print("  prepare_catalog     - Convert CSV with lag corrections")
+            print("  ph2dt               - Run ph2dt to create differential times")
+            print("  hypodd              - Run hypoDD relocation (default: hypoDD.inp, edit file name in python script)")
+            print("  convert             - Convert .reloc to CSV (default: hypoDD.reloc, edit file name in python script)")
+            print("  compare             - Run both CC and catalog methods and compare")
+            
+    except Exception as e:
+        print(f"ERROR: {e}\n\n")
