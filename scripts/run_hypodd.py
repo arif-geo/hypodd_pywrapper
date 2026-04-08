@@ -1,20 +1,24 @@
 import os
 import subprocess
 import sys
-from csv_hypodd import csv_to_pha, csv_to_cc, create_event_id_mapping, create_station_file, load_catalog, reloc_to_csv
+from csv_hypodd import csv_to_pha, csv_to_cc, daughter_csv_to_cc, create_event_id_mapping, create_station_file, load_catalog, reloc_to_csv
 from compare_utils import compare_relocations, run_comparison_test
 
 # Paths
 script_dir  = os.path.dirname(os.path.abspath(__file__))
 HYPODD_ROOT = os.path.abspath(f'{script_dir}/../HypoDD-2.1b')
-RUN_DIR     = os.path.abspath(f'{script_dir}/../data/runs/run_detections_test')
+RUN_DIR     = os.path.abspath(f'{script_dir}/../data/runs/ferndale')
 EXAMPLE_DIR = os.path.abspath(f'{script_dir}/../HypoDD-2.1b/examples/example2')
+os.makedirs(RUN_DIR, exist_ok=True)
 
 # CSV inputs
-input_dir   = f'{script_dir}/../data/input_csvs'
-CSV_FILE    = f'{input_dir}/nc73818801_fmf_detections_phase_picks.csv'
-STATION_CSV = f'{input_dir}/stations_2000_onshore_permanent_50km_cleaned_2022.csv'
-CATALOG_CSV = f'{input_dir}/yoon_shelly_ferndale-2022-12-01.csv'
+FMF_RESULTS = f'{script_dir}/../../../Match-Filter-Event-Detection/event_detection/results'
+FMF_DATA    = f'{script_dir}/../../../Match-Filter-Event-Detection/event_detection/data'
+
+CSV_FILE    = f'{FMF_RESULTS}/stage_f_master_catalog/master_phase_picks_2020_2022.csv'
+DAUGHTER_CC = f'{FMF_RESULTS}/stage_g_dd_cc/daughter_pairs_cc_2020_2022.csv'
+STATION_CSV = f'{FMF_DATA}/stations_2000_onshore_permanent_50km_cleaned_2022.csv'
+CATALOG_CSV = f'{FMF_DATA}/Yoon_Shelly_2024_catalog/yoon_shelley_20221219_reloc_buffered_25km.csv'
 
 
 def compile_hypodd():
@@ -67,9 +71,20 @@ def prepare_inputs():
     
     create_station_file(STATION_CSV, sta_file)
     catalog_info = load_catalog(CATALOG_CSV)
+    
+    # We need to compute mapping over both datasets if new IDs could exist in daughter_pairs. 
+    # Usually CSV_FILE has all template and detected events.
     event_mapping = create_event_id_mapping(CSV_FILE, mapping_file)
+    
+    # Convert phase catalog (also outputs parent-to-daughter pair CCs inside later step if needed)
     csv_to_pha(CSV_FILE, pha_file, catalog_info, event_mapping)
+    
+    # Write template-to-daughter pairs
     csv_to_cc(CSV_FILE, cc_file, min_cc=0.6, event_id_mapping=event_mapping)
+    
+    # Append daughter-to-daughter pairs if file exists
+    if os.path.exists(DAUGHTER_CC):
+        daughter_csv_to_cc(DAUGHTER_CC, cc_file, event_mapping, min_cc=0.6, append=True)
     
     print(f"Files ready in {RUN_DIR}/")
 
@@ -116,6 +131,13 @@ def run_hypodd(inp_file):
         return
     
     print(f"✅ hypoDD complete. Check output in {RUN_DIR}/")
+    
+    # Moving accesory output (hypodd.reloc.001.001-hypodd.reloc.xxx.xxx) to an archive folder
+    archive_dir = f'{RUN_DIR}/hypodd_output_archive'
+    os.makedirs(archive_dir, exist_ok=True)
+    cmd = f'mv {RUN_DIR}/hypoDD.reloc.* {archive_dir}/'
+    subprocess.run(cmd, shell=True, check=True)
+    print(f"Moved hypoDD output files to {archive_dir}/")
 
 
 def prepare_inputs_catalog_only():
@@ -136,18 +158,21 @@ def prepare_inputs_catalog_only():
     csv_to_pha(CSV_FILE, pha_file, catalog_info, event_mapping, apply_lag_correction=True)
     csv_to_cc(CSV_FILE, cc_file, min_cc=0.6, event_id_mapping=event_mapping)
     
+    if os.path.exists(DAUGHTER_CC):
+        daughter_csv_to_cc(DAUGHTER_CC, cc_file, event_mapping, min_cc=0.6, append=True)
+    
     print(f"Lag-corrected files ready in {RUN_DIR}/")
     print(f"  - {pha_file} (travel times adjusted by lag for detected events)")
 
 
 if __name__ == '__main__':
-    hypoinp_file = 'hypoDD_my2.inp'
+    hypoinp_file = 'hypoDD.inp'
     hypoout_file = f'{RUN_DIR}/hypoDD.reloc'
     try:
-        if sys.argv[1] == 'compile':
-            compile_hypodd()
-        elif sys.argv[1] == 'example':
+        if sys.argv[1] == 'example':
             run_example()
+        elif sys.argv[1] == 'compile':
+            compile_hypodd()
         elif sys.argv[1] == 'prepare':
             prepare_inputs()
         elif sys.argv[1] == 'prepare_catalog':
@@ -155,9 +180,19 @@ if __name__ == '__main__':
         elif sys.argv[1] == 'ph2dt':
             run_ph2dt()
         elif sys.argv[1] == 'hypodd':
-            run_hypodd(hypoinp_file)
+            try:
+                run_hypodd(hypoinp_file)
+            except Exception as e:
+                print(f"ERROR: {e}\nCheck that {hypoinp_file} exists in:\n{RUN_DIR}\n")
         elif sys.argv[1] == 'convert':
-            reloc_to_csv(hypoout_file, event_id_mapping_file=f'{RUN_DIR}/event_id_mapping.csv')
+            if sys.argv[2]:
+                outfile_suffix = f'_{sys.argv[2]}'
+            else:
+                outfile_suffix = ''
+            try:
+                reloc_to_csv(hypoout_file, outfile_suffix=outfile_suffix, event_id_mapping_file=f'{RUN_DIR}/event_id_mapping.csv')
+            except Exception as e:
+                print(f"ERROR: {e}\nCheck that {hypoout_file} exists in:\n{RUN_DIR}\n")
         else:
             print("Usage: python run_hypodd.py <command> [args]")
             print("\nCommands:")

@@ -31,11 +31,11 @@ def load_catalog(catalog_csv):
     
     Returns: dict {event_id: {'lat': x, 'lon': y, 'depth': z, 'mag': m, 'eh': ex, 'ez': ez}}
     """
-    df = pd.read_csv(catalog_csv)
+    df = pd.read_csv(catalog_csv, dtype={'event_id': str})
     catalog = {}
     
     for _, row in df.iterrows():
-        event_id = str(row['event_id'])
+        event_id = row['event_id']
         catalog[event_id] = {
             'lat': row['latitude'],
             'lon': row['longitude'],
@@ -56,8 +56,10 @@ def create_event_id_mapping(csv_file, output_file='event_id_mapping.csv'):
     
     Returns: dict {original_event_id: synthetic_id}
     """
-    df = pd.read_csv(csv_file)
-    unique_events = df['event_id'].unique()
+    df = pd.read_csv(csv_file, dtype={'event_id': str, 'template_id': str})
+    
+    # Just in case, dropna from event_id so we only get real strings
+    unique_events = df['event_id'].dropna().unique()
     
     # Generate synthetic IDs (starting from 100,000)
     synthetic_ids = np.arange(100000, 100000 + len(unique_events))
@@ -86,8 +88,9 @@ def csv_to_pha(csv_file, output_file, catalog_info=None, event_id_mapping=None, 
     apply_lag_correction: If True, apply lag times to detected event travel times
                          (for catalog-only relocation method). Template events remain unchanged.
     """
-    df = pd.read_csv(csv_file)
-    unique_events = df['event_id'].unique()
+    df = pd.read_csv(csv_file, dtype={'event_id': str, 'template_id': str})
+    
+    unique_events = df['event_id'].dropna().unique()
     
     with open(output_file, 'w') as f:
         for event in unique_events:
@@ -103,24 +106,29 @@ def csv_to_pha(csv_file, output_file, catalog_info=None, event_id_mapping=None, 
             
             # Strategy: Use catalog location if event is in catalog (template event)
             # Otherwise, use template's location for detected events
-            if catalog_info and str(event) in catalog_info:
+            # Base string representations for dict lookup
+            evt_str = str(event).strip()
+            tmp_str = str(event_data['template_id']).strip() if pd.notna(event_data['template_id']) else ''
+
+            if catalog_info and evt_str in catalog_info:
                 # Template event - use catalog info directly
-                cat = catalog_info[str(event)]
+                cat = catalog_info[evt_str]
                 lat, lon, depth = cat['lat'], cat['lon'], cat['depth']
                 mag = cat['mag']
                 eh, ez = cat['eh'], cat['ez']
             
-            elif catalog_info and str(event_data['template_id']) in catalog_info:
+            elif catalog_info and tmp_str in catalog_info:
                 # Detected event - inherit template's location as initial guess
-                cat = catalog_info[str(event_data['template_id'])]
+                cat = catalog_info[tmp_str]
                 lat, lon, depth = cat['lat'], cat['lon'], cat['depth']
                 
-                # Note: For detected events, we inherit template location but:
-                # - Magnitude is unknown (set to 0.0) - HypoDD will not estimate this
-                # - Uncertainties set to 0.0 since we're using template's location as proxy
-                # - HypoDD will relocate these events relative to template
                 mag = 0.0
                 eh, ez = 0.0, 0.0
+            else:
+                # Critical Fallback: if we somehow miss BOTH the event AND template
+                # Assign dummy values to avoid 0.0 which breaks delaz distance checks
+                lat, lon, depth = 40.5, -124.0, 10.0
+                print(f"WARNING: Coords for {event} not found! Defaulting to 40.5, -124.0 to prevent crash.")
             
             # Get synthetic ID for output
             if event_id_mapping is not None:
@@ -180,8 +188,11 @@ def csv_to_cc(csv_file, output_file, min_cc=0.0, event_id_mapping=None):
     min_cc: minimum CC threshold
     event_id_mapping: dict {original_event_id: synthetic_id} or None to auto-generate
     """
-    df = pd.read_csv(csv_file)
-    detections = df[df['event_id'] != df['template_id']]
+    df = pd.read_csv(csv_file, dtype={'event_id': str, 'template_id': str})
+    
+    # filter for float na so inequality works safely
+    detections = df[(df['event_id'].notna()) & (df['template_id'].notna())]
+    detections = detections[detections['event_id'] != detections['template_id']]
     
     if len(detections) == 0:
         detections = df.copy()
@@ -211,14 +222,82 @@ def csv_to_cc(csv_file, output_file, min_cc=0.0, event_id_mapping=None):
                     valid_picks.append((pick['station'], pick['lag_time_s'], pick['cc_s'], 'S'))
             
             if valid_picks:
-                f.write(f"# {id1:9d} {id2:9d} 0.000000\n")
+                f.write(f"# {id1} {id2} 0.000000\n")
                 for sta, dt, wght, pha in valid_picks:
                     f.write(f"{sta:7s} {dt:9.6f} {wght:5.3f} {pha}\n")
     
     print(f"Created {output_file}")
 
 
-def reloc_to_csv(reloc_file, output_dir=None, method_suffix='', event_id_mapping_file=None):
+def daughter_csv_to_cc(daughter_csv_file, output_file, event_id_mapping, min_cc=0.0, append=False):
+    """
+    Convert daughter-to-daughter pair CSV to .cc format and append to or create .cc file.
+    
+    This function bridges the gap between traditional Template Matching (star-topology)
+    and robust relative relocation by injecting Daughter-to-Daughter cross-correlation
+    links. It reads the computed lag times between two detected events (daughters) 
+    and formats them as differential times for HypoDD.
+
+    Format expected by HypoDD: 
+            # ID1 ID2 OTC
+            STA DT WGHT PHA
+            
+    daughter_csv_file: path to daughter_pairs_cc.csv
+    output_file: output .cc file
+    event_id_mapping: dict {original_event_id: synthetic_id} to ensure ID consistency
+    min_cc: minimum CC threshold to keep the pair
+    append: Whether to append to existing output_file (usually True to merge with Template-Daughter)
+    """
+    # 1. Load the daughter-to-daughter pairs, strictly enforcing string types for IDs
+    #    so we don't accidentally get float parsing errors (like '123.0' vs '123').
+    df = pd.read_csv(daughter_csv_file, dtype={'ev1': str, 'ev2': str})
+    
+    # 2. Extract unique event pairs to write them out pair-by-pair in HypoDD format.
+    pairs = df[['ev1', 'ev2']].drop_duplicates()
+    
+    # If append is True, we open in 'a' mode, adding these pairs directly to the 
+    # end of the file that already contains the Template-Daughter pairs.
+    mode = 'a' if append else 'w'
+    with open(output_file, mode) as f:
+        for _, pair in pairs.iterrows():
+            # Extract all phase picks (rows) associated with this specific event pair
+            picks = df[(df['ev1'] == pair['ev1']) & (df['ev2'] == pair['ev2'])]
+            
+            # 3. Validation: Ensure both events exist in our master ID dictionary.
+            #    If an event isn't in the .pha file or catalog, HypoDD can't use it anyway.
+            if pair['ev1'] not in event_id_mapping or pair['ev2'] not in event_id_mapping:
+                print(f"Skipping pair {pair['ev1']}-{pair['ev2']}: IDs missing from master catalog.")
+                continue
+                
+            # 4. Convert the alphanumeric/custom IDs to HypoDD's required integer IDs.
+            id1 = event_id_mapping[pair['ev1']]
+            id2 = event_id_mapping[pair['ev2']]
+            
+            # 5. Extract only the valid, high-quality picks for this pair.
+            valid_picks = []
+            for _, pick in picks.iterrows():
+                # Columns: ev1, ev2, station, phase, cc_value, dt_sec
+                # Check that we have values and the CC score is above our minimum threshold.
+                if pd.notna(pick['dt_sec']) and pd.notna(pick['cc_value']) and pick['cc_value'] >= min_cc:
+                    # Append tuple: (Station, Differential Time, Weight/CC, Phase)
+                    valid_picks.append((pick['station'], pick['dt_sec'], pick['cc_value'], pick['phase']))
+            
+            # 6. If we have surviving picks, write the event pair header followed by the stations
+            if valid_picks:
+                # Write the event pair header line: # ID1 ID2 Origin_Time_Correction
+                f.write(f"# {id1} {id2} 0.000000\n")
+                
+                # Write the pick lines for each station
+                for sta, dt, wght, pha in valid_picks:
+                    f.write(f"{sta:7s} {dt:9.6f} {wght:5.3f} {pha}\n")
+    
+    if append:
+        print(f"Successfully appended daughter pairs to {output_file}")
+    else:
+        print(f"Created new CC file for daughter pairs: {output_file}")
+
+
+def reloc_to_csv(reloc_file, output_dir=None, outfile_suffix='', event_id_mapping_file=None):
     """
     Convert HypoDD relocation output (.reloc) to CSV format.
     
@@ -228,7 +307,7 @@ def reloc_to_csv(reloc_file, output_dir=None, method_suffix='', event_id_mapping
         Path to the hypoDD.reloc file
     output_dir : str, optional
         Directory to save the CSV file. Default: '../data/hypoDD_outputs'
-    method_suffix : str, optional
+    outfile_suffix : str, optional
         Suffix to add to filename (e.g., '_cc', '_cat'). Default: ''
     event_id_mapping_file : str, optional
         Path to event_id_mapping.csv to convert synthetic IDs back to original IDs
@@ -253,33 +332,42 @@ def reloc_to_csv(reloc_file, output_dir=None, method_suffix='', event_id_mapping
     with open(reloc_file, 'r') as f:
         for line in f:
             parts = line.split()
+            # If line has asterisks or NaN, hypoDD failed to relocate it properly. Drop it.
+            if '*' in line or 'NaN' in line:
+                print(f"Skipping poorly constrained event: {parts[0]}")
+                continue
+                
             if len(parts) >= 24:  # Full format
-                data.append({
-                    'event_id': int(parts[0]),
-                    'latitude': float(parts[1]),
-                    'longitude': float(parts[2]),
-                    'depth': float(parts[3]),
-                    'x_m': float(parts[4]),
-                    'y_m': float(parts[5]),
-                    'z_m': float(parts[6]),
-                    'ex_m': float(parts[7]),
-                    'ey_m': float(parts[8]),
-                    'ez_m': float(parts[9]),
-                    'year': int(parts[10]),
-                    'month': int(parts[11]),
-                    'day': int(parts[12]),
-                    'hour': int(parts[13]),
-                    'minute': int(parts[14]),
-                    'second': float(parts[15]),
-                    'magnitude': float(parts[16]),
-                    'n_cc_p': int(parts[17]),
-                    'n_cc_s': int(parts[18]),
-                    'n_cat_p': int(parts[19]),
-                    'n_cat_s': int(parts[20]),
-                    'rms_cc': float(parts[21]),
-                    'rms_cat': float(parts[22]),
-                    'cluster_id': int(parts[23])
-                })
+                try:
+                    data.append({
+                        'event_id': int(parts[0]),
+                        'latitude': float(parts[1]),
+                        'longitude': float(parts[2]),
+                        'depth': float(parts[3]),
+                        'x_m': float(parts[4]),
+                        'y_m': float(parts[5]),
+                        'z_m': float(parts[6]),
+                        'ex_m': float(parts[7]),
+                        'ey_m': float(parts[8]),
+                        'ez_m': float(parts[9]),
+                        'year': int(parts[10]),
+                        'month': int(parts[11]),
+                        'day': int(parts[12]),
+                        'hour': int(parts[13]),
+                        'minute': int(parts[14]),
+                        'second': float(parts[15]),
+                        'magnitude': float(parts[16]),
+                        'n_cc_p': int(parts[17]),
+                        'n_cc_s': int(parts[18]),
+                        'n_cat_p': int(parts[19]),
+                        'n_cat_s': int(parts[20]),
+                        'rms_cc': float(parts[21]),
+                        'rms_cat': float(parts[22]),
+                        'cluster_id': int(parts[23])
+                    })
+                except ValueError as e:
+                    print(f"Warning: Could not parse line for event {parts[0]}: {e}")
+                    continue
     
     df = pd.DataFrame(data)
     
@@ -325,7 +413,7 @@ def reloc_to_csv(reloc_file, output_dir=None, method_suffix='', event_id_mapping
     
     # Generate output filename
     base_name = os.path.basename(reloc_file).replace('.reloc', '')
-    output_file = os.path.abspath(f'{output_dir}/{base_name}{method_suffix}.csv')
+    output_file = os.path.abspath(f'{output_dir}/{base_name}{outfile_suffix}.csv')
     
     # Save to CSV
     df.to_csv(output_file, index=False)
