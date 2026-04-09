@@ -248,53 +248,67 @@ def daughter_csv_to_cc(daughter_csv_file, output_file, event_id_mapping, min_cc=
     min_cc: minimum CC threshold to keep the pair
     append: Whether to append to existing output_file (usually True to merge with Template-Daughter)
     """
-    # 1. Load the daughter-to-daughter pairs, strictly enforcing string types for IDs
-    #    so we don't accidentally get float parsing errors (like '123.0' vs '123').
-    df = pd.read_csv(daughter_csv_file, dtype={'ev1': str, 'ev2': str})
+    # 1. Load the daughter-to-daughter pairs, optimizing memory with categorical types
+    #    and strictly enforcing string types for IDs.
+    import time
+    t0 = time.time()
     
-    # 2. Extract unique event pairs to write them out pair-by-pair in HypoDD format.
-    pairs = df[['ev1', 'ev2']].drop_duplicates()
+    dtype_dict = {
+        'template_id': str,
+        'ev1': str, 
+        'ev2': str, 
+        'station': 'category', 
+        'phase': 'category'
+    }
+    df = pd.read_csv(daughter_csv_file, dtype=dtype_dict)
     
-    # If append is True, we open in 'a' mode, adding these pairs directly to the 
-    # end of the file that already contains the Template-Daughter pairs.
+    # 2. Pre-filter rows to remove missing/low-CC data early
+    df = df[(df['cc_value'] >= min_cc) & df['dt_sec'].notna() & df['cc_value'].notna()].copy()
+    
+    # 3. Vectorized ID mapping! This scales to millions effortlessly 
+    df['id1'] = df['ev1'].map(event_id_mapping)
+    df['id2'] = df['ev2'].map(event_id_mapping)
+    df.dropna(subset=['id1', 'id2'], inplace=True) # Drop missing items from catalog
+    
+    # 4. Generate formatted string for each pick via fast Python list-comprehension zip
+    lines = [
+        f"{sta:7s} {dt:9.6f} {cc:5.3f} {pha}" 
+        for sta, dt, cc, pha in zip(df['station'], df['dt_sec'], df['cc_value'], df['phase'])
+    ]
+    df['pick_str'] = lines
+    
+    # Convert mapping to string format immediately for the headers
+    df['id1'] = df['id1'].astype(int).astype(str)
+    df['id2'] = df['id2'].astype(int).astype(str)
+    
+    # 5. Extract to bare Python lists (bypassing slow Pandas MultiIndex factorize)
+    id1_list = df['id1'].tolist()
+    id2_list = df['id2'].tolist()
+    
+    from collections import defaultdict
+    grouped_strs = defaultdict(list)
+    
+    # 6. Pure python dictionary grouping is incredibly fast for 4M rows
+    for i1, i2, pick in zip(id1_list, id2_list, lines):
+        grouped_strs[(i1, i2)].append(pick)
+        
+    # 7. Formulate final lines
+    final_blocks = []
+    for (i1, i2), pick_list in grouped_strs.items():
+        # Header + \n + picks + \n
+        final_blocks.append(f"# {i1} {i2} 0.000000\n" + "\n".join(pick_list) + "\n")
+        
+    # 8. Join entire file payload as single string block and dump to disk
+    final_output = "".join(final_blocks)
+    
     mode = 'a' if append else 'w'
     with open(output_file, mode) as f:
-        for _, pair in pairs.iterrows():
-            # Extract all phase picks (rows) associated with this specific event pair
-            picks = df[(df['ev1'] == pair['ev1']) & (df['ev2'] == pair['ev2'])]
-            
-            # 3. Validation: Ensure both events exist in our master ID dictionary.
-            #    If an event isn't in the .pha file or catalog, HypoDD can't use it anyway.
-            if pair['ev1'] not in event_id_mapping or pair['ev2'] not in event_id_mapping:
-                print(f"Skipping pair {pair['ev1']}-{pair['ev2']}: IDs missing from master catalog.")
-                continue
-                
-            # 4. Convert the alphanumeric/custom IDs to HypoDD's required integer IDs.
-            id1 = event_id_mapping[pair['ev1']]
-            id2 = event_id_mapping[pair['ev2']]
-            
-            # 5. Extract only the valid, high-quality picks for this pair.
-            valid_picks = []
-            for _, pick in picks.iterrows():
-                # Columns: ev1, ev2, station, phase, cc_value, dt_sec
-                # Check that we have values and the CC score is above our minimum threshold.
-                if pd.notna(pick['dt_sec']) and pd.notna(pick['cc_value']) and pick['cc_value'] >= min_cc:
-                    # Append tuple: (Station, Differential Time, Weight/CC, Phase)
-                    valid_picks.append((pick['station'], pick['dt_sec'], pick['cc_value'], pick['phase']))
-            
-            # 6. If we have surviving picks, write the event pair header followed by the stations
-            if valid_picks:
-                # Write the event pair header line: # ID1 ID2 Origin_Time_Correction
-                f.write(f"# {id1} {id2} 0.000000\n")
-                
-                # Write the pick lines for each station
-                for sta, dt, wght, pha in valid_picks:
-                    f.write(f"{sta:7s} {dt:9.6f} {wght:5.3f} {pha}\n")
+        f.write(final_output)
     
     if append:
-        print(f"Successfully appended daughter pairs to {output_file}")
+        print(f"Successfully appended daughter pairs to {output_file} (Took {time.time()-t0:.2f}s)")
     else:
-        print(f"Created new CC file for daughter pairs: {output_file}")
+        print(f"Created new CC file for daughter pairs: {output_file} (Took {time.time()-t0:.2f}s)")
 
 
 def reloc_to_csv(reloc_file, output_dir=None, outfile_suffix='', event_id_mapping_file=None):

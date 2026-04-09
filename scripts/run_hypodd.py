@@ -7,7 +7,7 @@ from compare_utils import compare_relocations, run_comparison_test
 # Paths
 script_dir  = os.path.dirname(os.path.abspath(__file__))
 HYPODD_ROOT = os.path.abspath(f'{script_dir}/../HypoDD-2.1b')
-RUN_DIR     = os.path.abspath(f'{script_dir}/../data/runs/ferndale_5yr')
+RUN_DIR     = os.path.abspath(f'{script_dir}/../data/runs/ferndale_5yr') # ******* CHANGE THIS FOR EACH RUN *****
 EXAMPLE_DIR = os.path.abspath(f'{script_dir}/../HypoDD-2.1b/examples/example2')
 os.makedirs(RUN_DIR, exist_ok=True)
 
@@ -15,10 +15,10 @@ os.makedirs(RUN_DIR, exist_ok=True)
 FMF_RESULTS = f'{script_dir}/../../../Match-Filter-Event-Detection/event_detection/results'
 FMF_DATA    = f'{script_dir}/../../../Match-Filter-Event-Detection/event_detection/data'
 
-CSV_FILE    = f'{FMF_RESULTS}/stage_f_master_catalog/master_phase_picks_2018_2022_5yr.csv'
-DAUGHTER_CC = f'{FMF_RESULTS}/stage_g_dd_cc/daughter_pairs_cc_2018_2022_5yr.csv'
+CSV_FILE    = f'{FMF_RESULTS}/stage_f_master_catalog/master_phase_picks_2018_2022_5yr.csv' # Main phase picks
+DAUGHTER_CC = f'{FMF_RESULTS}/stage_g_dd_cc/daughter_pairs_cc_2018_2022_5yr.csv' # (optional) daughter-to-daughter CCs
 STATION_CSV = f'{FMF_DATA}/stations_2000_onshore_permanent_50km_cleaned_2022.csv'
-CATALOG_CSV = f'{FMF_DATA}/Yoon_Shelly_2024_catalog/yoon_shelley_20221219_reloc_buffered_25km.csv'
+CATALOG_CSV = f'{FMF_DATA}/Yoon_Shelly_2024_catalog/yoon_shelley_20221219_reloc_buffered_25km.csv' # Template catalog (also used for event metadata like origin time, depth, etc. in pha file)
 
 
 def compile_hypodd():
@@ -198,8 +198,8 @@ if __name__ == '__main__':
             print("\nCommands:")
             print("  compile             - Compile HypoDD Fortran codes")
             print("  example             - Run HypoDD example2 test")
-            print("  prepare             - Convert CSV to HypoDD input files")
-            print("  prepare_catalog     - Convert CSV with lag corrections")
+            print("  prepare             - Convert CSV to HypoDD input files (for catalog+CC method)")
+            print("  prepare_catalog     - Convert CSV with lag corrections (for catalog-only method)")
             print("  ph2dt               - Run ph2dt to create differential times")
             print("  hypodd              - Run hypoDD relocation (default: hypoDD.inp, edit file name in python script)")
             print("  convert             - Convert .reloc to CSV (default: hypoDD.reloc, edit file name in python script)")

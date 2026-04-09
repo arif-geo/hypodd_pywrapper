@@ -22,7 +22,7 @@ OBJS	= $(SRCS:%.f=%.o) $(CSRCS:%.c=%.o)
 INCLDIR	= ../../include
 CFLAGS	= -O -I$(INCLDIR)
 
-#LDFLAGS = 
+LDFLAGS = -mcmodel=medium
 #LDFLAGS = -L/usr/lib/gcc/i686-apple-darwin10/4.2.1 -lgcc
 listflg = -L -c -O
 
@@ -31,7 +31,7 @@ listflg = -L -c -O
 
 # Flags for SUN f77 compiler
 #FFLAGS	= -O -I$(INCLDIR) -g
-FFLAGS	= -O -I$(INCLDIR) 
+FFLAGS  = -O -mcmodel=medium -I$(INCLDIR) 
 
 # Following line needed on HP-UX (hasn't been tested, though).
 #LDFLAGS	= +U77
