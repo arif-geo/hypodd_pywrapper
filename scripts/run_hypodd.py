@@ -7,7 +7,7 @@ from compare_utils import compare_relocations, run_comparison_test
 # Paths
 script_dir  = os.path.dirname(os.path.abspath(__file__))
 HYPODD_ROOT = os.path.abspath(f'{script_dir}/../HypoDD-2.1b')
-RUN_DIR     = os.path.abspath(f'{script_dir}/../data/runs/ferndale')
+RUN_DIR     = os.path.abspath(f'{script_dir}/../data/runs/ferndale_5yr')
 EXAMPLE_DIR = os.path.abspath(f'{script_dir}/../HypoDD-2.1b/examples/example2')
 os.makedirs(RUN_DIR, exist_ok=True)
 
@@ -15,8 +15,8 @@ os.makedirs(RUN_DIR, exist_ok=True)
 FMF_RESULTS = f'{script_dir}/../../../Match-Filter-Event-Detection/event_detection/results'
 FMF_DATA    = f'{script_dir}/../../../Match-Filter-Event-Detection/event_detection/data'
 
-CSV_FILE    = f'{FMF_RESULTS}/stage_f_master_catalog/master_phase_picks_2020_2022.csv'
-DAUGHTER_CC = f'{FMF_RESULTS}/stage_g_dd_cc/daughter_pairs_cc_2020_2022.csv'
+CSV_FILE    = f'{FMF_RESULTS}/stage_f_master_catalog/master_phase_picks_2018_2022_5yr.csv'
+DAUGHTER_CC = f'{FMF_RESULTS}/stage_g_dd_cc/daughter_pairs_cc_2018_2022_5yr.csv'
 STATION_CSV = f'{FMF_DATA}/stations_2000_onshore_permanent_50km_cleaned_2022.csv'
 CATALOG_CSV = f'{FMF_DATA}/Yoon_Shelly_2024_catalog/yoon_shelley_20221219_reloc_buffered_25km.csv'
 
