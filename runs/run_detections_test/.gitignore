@@ -1,0 +1,5 @@
+# Ignore newly generated result artifacts by default.
+# Existing tracked outputs stay tracked, but new files in this tree will not be added accidentally.
+
+*
+!.gitignore
