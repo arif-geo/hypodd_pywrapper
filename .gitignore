@@ -1,13 +1,8 @@
 scripts/logs/hypodd_output_archive/
 scripts/logs/*
-data/runs/*/*.log
-data/runs/*/*.cc
-data/runs/*/*.pha
-data/runs/*/*.ct
-# Ignore specific large file extensions everywhere (including inside runs/)
-**/*.cc
-**/*.pha
-**/*.ct
-**/*.log
+runs/*/*.log
+runs/*/*.cc
+runs/*/*.pha
+runs/*/*.ct
 # Specifically ignore log archive folders
 **/hypodd_output_archive/
