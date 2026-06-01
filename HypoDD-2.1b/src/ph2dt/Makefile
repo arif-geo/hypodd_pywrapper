@@ -1,29 +1,20 @@
-CMD	= ph2dt
-CC	= gcc
-#FC	= g77
-#FC	= f77
-FC	= gfortran 
-SRCS	= $(CMD).f \
-	  cluster.f delaz.f ifindi.f \
-	  indexx.f indexxi.f sorti.f trimlen.f
-CSRCS	= rpad_.c datetime_.c 
-OBJS	= $(SRCS:%.f=%.o) $(CSRCS:%.c=%.o)
-INCLDIR	= ../../include
-CFLAGS	= -O -I$(INCLDIR) 
+CMD     = ph2dt
+CC      = gcc
+FC      = gfortran 
+SRCS    = $(CMD).f \
+          cluster.f delaz.f ifindi.f \
+          indexx.f indexxi.f sorti.f trimlen.f
+CSRCS   = rpad_.c datetime_.c 
+OBJS    = $(SRCS:%.f=%.o) $(CSRCS:%.c=%.o)
+INCLDIR = ../../include
 
-# LDFLAGS = -L/usr/lib/gcc/i686-apple-darwin10/4.2.1 -lgcc
-#LDFLAGS = 
+# ADDED -mcmodel=large for large arrays!
+CFLAGS  = -O -mcmodel=large -I$(INCLDIR) 
+FFLAGS  = -O -mcmodel=large -I$(INCLDIR)
+
+LDFLAGS = -mcmodel=large
+
 listflg = -L -c -O
-
-# Flags for GNU g77 compiler
-#FFLAGS	= -O -I$(INCLDIR) -fno-silent -Wall -implicit
-
-# Flags for SUN f77 compiler
-#FFLAGS = -O -I$(INCLDIR) -g
-FFLAGS  = -I$(INCLDIR) -g
-
-# Following line needed on HP-UX (hasn't been tested, though).
-#LDFLAGS	= +U77
 
 all: $(CMD)
 
@@ -32,6 +23,9 @@ $(CMD): $(OBJS)
 
 %.o: %.f
 	$(FC) $(FFLAGS) -c $(@F:.o=.f) -o $@
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $(@F:.o=.c) -o $@
 
 clean:
 	-rm -f $(CMD) *.o core a.out junk

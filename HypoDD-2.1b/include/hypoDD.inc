@@ -16,19 +16,10 @@ c MAXCL:    Max number of clusters allowed.
         integer*4 MAXCL
 
 c parameters for large size problems 
-      parameter(MAXEVE=   25000,    
-     &          MAXDATA=  6000000,
+      parameter(MAXEVE=   50000,    
+     &          MAXDATA=  25000000,
      &          MAXEVE0=  215,
      &          MAXDATA0= 100000,
      &          MAXLAY=   50,
      &          MAXSTA=   400,
      &          MAXCL=    200)
-
-cc parameters for small size problems 
-c      parameter(MAXEVE=   1000,    
-c     &          MAXDATA=  20000,
-c     &          MAXEVE0=  20,
-c     &          MAXDATA0= 2000,
-c     &          MAXLAY=   30,
-c     &          MAXSTA=   100,
-c     &          MAXCL=    200)

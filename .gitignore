@@ -1,3 +1,7 @@
 scripts/logs/hypodd_output_archive/
 scripts/logs/*
-softwares/hypodd_pywrapper/data/runs/
+runs/
+**/*.cc
+**/*.pha
+**/*.ct
+**/*.log

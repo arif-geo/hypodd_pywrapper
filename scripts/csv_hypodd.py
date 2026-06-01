@@ -91,10 +91,12 @@ def csv_to_pha(csv_file, output_file, catalog_info=None, event_id_mapping=None, 
     df = pd.read_csv(csv_file, dtype={'event_id': str, 'template_id': str})
     
     unique_events = df['event_id'].dropna().unique()
+    grouped = df.groupby('event_id')
     
     with open(output_file, 'w') as f:
         for event in unique_events:
-            event_data = df[df['event_id'] == event].iloc[0]
+            picks = grouped.get_group(event)
+            event_data = picks.iloc[0]
             
             # Parse origin time from CSV
             dt = datetime.fromisoformat(event_data['origin_time'].replace('Z', '+00:00'))
@@ -145,7 +147,6 @@ def csv_to_pha(csv_file, output_file, catalog_info=None, event_id_mapping=None, 
                    f"{lat:8.4f} {lon:9.4f} {depth:7.2f}{mag:6.2f}{eh:6.2f}{ez:6.2f}{0.0:6.2f} {event_id:10d}\n")
             
             # Write phase picks: STA TT WGHT PHA
-            picks = df[df['event_id'] == event]
             for _, pick in picks.iterrows():
                 station = pick['station']
                 
@@ -203,11 +204,15 @@ def csv_to_cc(csv_file, output_file, min_cc=0.0, event_id_mapping=None):
     if event_id_mapping is None:
         all_events = pd.concat([detections['event_id'], detections['template_id']]).unique()
         event_id_mapping = {event: i for i, event in enumerate(all_events, start=1)}
+        
+    grouped_picks = detections.groupby(['event_id', 'template_id'])
     
     with open(output_file, 'w') as f:
         for _, pair in pairs.iterrows():
-            picks = detections[(detections['event_id'] == pair['event_id']) & 
-                             (detections['template_id'] == pair['template_id'])]
+            try:
+                picks = grouped_picks.get_group((pair['event_id'], pair['template_id']))
+            except KeyError:
+                continue
             
             # Get synthetic IDs
             id1 = event_id_mapping[pair['event_id']]
@@ -233,78 +238,92 @@ def daughter_csv_to_cc(daughter_csv_file, output_file, event_id_mapping, min_cc=
     """
     Convert daughter-to-daughter pair CSV to .cc format and append to or create .cc file.
     
-    This function bridges the gap between traditional Template Matching (star-topology)
-    and robust relative relocation by injecting Daughter-to-Daughter cross-correlation
-    links. It reads the computed lag times between two detected events (daughters) 
-    and formats them as differential times for HypoDD.
-
-    Format expected by HypoDD: 
-            # ID1 ID2 OTC
-            STA DT WGHT PHA
-            
     daughter_csv_file: path to daughter_pairs_cc.csv
     output_file: output .cc file
     event_id_mapping: dict {original_event_id: synthetic_id} to ensure ID consistency
     min_cc: minimum CC threshold to keep the pair
-    append: Whether to append to existing output_file (usually True to merge with Template-Daughter)
+    append: Whether to append to existing output_file
     """
-    # 1. Load the daughter-to-daughter pairs, optimizing memory with categorical types
-    #    and strictly enforcing string types for IDs.
     import time
     t0 = time.time()
     
+    # 1. Load ONLY necessary columns with optimized types to prevent MemoryError and Mixed Dtype warnings
     dtype_dict = {
-        'template_id': str,
         'ev1': str, 
         'ev2': str, 
         'station': 'category', 
-        'phase': 'category'
+        'phase': 'category',
+        'cc_value': np.float32,
+        'dt_sec': np.float32
     }
-    df = pd.read_csv(daughter_csv_file, dtype=dtype_dict)
+    usecols = ['ev1', 'ev2', 'station', 'phase', 'cc_value', 'dt_sec']
+    
+    df = pd.read_csv(daughter_csv_file, dtype=dtype_dict, usecols=usecols, engine='c')
     
     # 2. Pre-filter rows to remove missing/low-CC data early
-    df = df[(df['cc_value'] >= min_cc) & df['dt_sec'].notna() & df['cc_value'].notna()].copy()
+    df = df[(df['cc_value'] >= min_cc) & df['dt_sec'].notna() & df['cc_value'].notna()]
     
-    # 3. Vectorized ID mapping! This scales to millions effortlessly 
+    # 3. Vectorized ID mapping!
     df['id1'] = df['ev1'].map(event_id_mapping)
     df['id2'] = df['ev2'].map(event_id_mapping)
-    df.dropna(subset=['id1', 'id2'], inplace=True) # Drop missing items from catalog
     
-    # 4. Generate formatted string for each pick via fast Python list-comprehension zip
-    lines = [
-        f"{sta:7s} {dt:9.6f} {cc:5.3f} {pha}" 
-        for sta, dt, cc, pha in zip(df['station'], df['dt_sec'], df['cc_value'], df['phase'])
-    ]
-    df['pick_str'] = lines
+    # 3.5. CRITICAL MEMORY OPTIMIZATION: Drop 55 million string objects immediately!
+    df.drop(columns=['ev1', 'ev2'], inplace=True)
     
-    # Convert mapping to string format immediately for the headers
-    df['id1'] = df['id1'].astype(int).astype(str)
-    df['id2'] = df['id2'].astype(int).astype(str)
+    # 4. Drop unmapped and cast to smallest int type
+    df.dropna(subset=['id1', 'id2'], inplace=True)
+    df['id1'] = df['id1'].astype(np.int32)
+    df['id2'] = df['id2'].astype(np.int32)
     
-    # 5. Extract to bare Python lists (bypassing slow Pandas MultiIndex factorize)
-    id1_list = df['id1'].tolist()
-    id2_list = df['id2'].tolist()
+    # 5. Sort to group pairs sequentially (fast internally in pandas)
+    df.sort_values(by=['id1', 'id2'], inplace=True)
     
-    from collections import defaultdict
-    grouped_strs = defaultdict(list)
+    # 6. Extract raw numpy arrays to bypass huge python zip/list string object allocations
+    ids1 = df['id1'].values
+    ids2 = df['id2'].values
     
-    # 6. Pure python dictionary grouping is incredibly fast for 4M rows
-    for i1, i2, pick in zip(id1_list, id2_list, lines):
-        grouped_strs[(i1, i2)].append(pick)
+    # Categories / objects to raw array
+    if hasattr(df['station'], 'cat'):
+        stations = df['station'].astype(str).values
+    else:
+        stations = df['station'].values
         
-    # 7. Formulate final lines
-    final_blocks = []
-    for (i1, i2), pick_list in grouped_strs.items():
-        # Header + \n + picks + \n
-        final_blocks.append(f"# {i1} {i2} 0.000000\n" + "\n".join(pick_list) + "\n")
+    if hasattr(df['phase'], 'cat'):
+        phases = df['phase'].astype(str).values
+    else:
+        phases = df['phase'].values
         
-    # 8. Join entire file payload as single string block and dump to disk
-    final_output = "".join(final_blocks)
+    dts = df['dt_sec'].values
+    ccs = df['cc_value'].values
     
+    del df # Flush DataFrame to free completely
+    
+    # 7. Write strictly iteratively via buffer blocks to output_file
     mode = 'a' if append else 'w'
     with open(output_file, mode) as f:
-        f.write(final_output)
-    
+        buffer = []
+        prev_pair = (-1, -1)
+        
+        for i in range(len(ids1)):
+            pair = (ids1[i], ids2[i])
+            if pair != prev_pair:
+                if buffer:
+                    f.write("".join(buffer))
+                    buffer.clear()
+                buffer.append(f"# {pair[0]:d} {pair[1]:d} 0.000000\n")
+                prev_pair = pair
+                
+            buffer.append(f"{stations[i]:7s} {dts[i]:9.6f} {ccs[i]:5.3f} {phases[i]}\n")
+            
+            # Flush every 1M records to disk
+            if len(buffer) > 1000000:
+                f.write("".join(buffer))
+                buffer.clear()
+                
+        # Final flush
+        if buffer:
+            f.write("".join(buffer))
+            
     if append:
         print(f"Successfully appended daughter pairs to {output_file} (Took {time.time()-t0:.2f}s)")
     else:

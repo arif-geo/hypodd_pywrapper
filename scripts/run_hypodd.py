@@ -7,16 +7,16 @@ from compare_utils import compare_relocations, run_comparison_test
 # Paths
 script_dir  = os.path.dirname(os.path.abspath(__file__))
 HYPODD_ROOT = os.path.abspath(f'{script_dir}/../HypoDD-2.1b')
-RUN_DIR     = os.path.abspath(f'{script_dir}/../data/runs/ferndale_5yr') # ******* CHANGE THIS FOR EACH RUN *****
+RUN_DIR     = os.path.abspath(f'{script_dir}/../runs/ferndale_10yr') # ******* POINTING TO NEW RUN DIR *****
 EXAMPLE_DIR = os.path.abspath(f'{script_dir}/../HypoDD-2.1b/examples/example2')
 os.makedirs(RUN_DIR, exist_ok=True)
 
 # CSV inputs
-FMF_RESULTS = f'{script_dir}/../../../Match-Filter-Event-Detection/event_detection/results'
-FMF_DATA    = f'{script_dir}/../../../Match-Filter-Event-Detection/event_detection/data'
+FMF_RESULTS = os.path.abspath(f'{script_dir}/../../../Match-Filter-Event-Detection/event_detection/results')
+FMF_DATA    = os.path.abspath(f'{script_dir}/../../../Match-Filter-Event-Detection/event_detection/data')
 
-CSV_FILE    = f'{FMF_RESULTS}/stage_f_master_catalog/master_phase_picks_2018_2022_5yr.csv' # Main phase picks
-DAUGHTER_CC = f'{FMF_RESULTS}/stage_g_dd_cc/daughter_pairs_cc_2018_2022_5yr.csv' # (optional) daughter-to-daughter CCs
+CSV_FILE    = f'{FMF_RESULTS}/stage_f_master_catalog/master_phase_picks_2013_2022_10yr.csv' # Main phase picks (10-year)
+DAUGHTER_CC = f'{FMF_RESULTS}/stage_g_global_cc/global_pairs_cc_2013_2022_10yr.csv' # Global all-to-all CCs (10-year)
 STATION_CSV = f'{FMF_DATA}/stations_2000_onshore_permanent_50km_cleaned_2022.csv'
 CATALOG_CSV = f'{FMF_DATA}/Yoon_Shelly_2024_catalog/yoon_shelley_20221219_reloc_buffered_25km.csv' # Template catalog (also used for event metadata like origin time, depth, etc. in pha file)
 
@@ -119,7 +119,7 @@ def run_hypodd(inp_file):
     
     print(f"\nRunning hypoDD with {inp_filename} in {RUN_DIR}...")
     cmd = [f'{HYPODD_ROOT}/src/hypoDD/hypoDD', inp_filename]
-    result = subprocess.run(cmd, cwd=RUN_DIR, capture_output=True, text=True)
+    result = subprocess.run(cmd, cwd=RUN_DIR, capture_output=True, text=True, errors='replace')
     
     # Print output
     print(result.stdout)

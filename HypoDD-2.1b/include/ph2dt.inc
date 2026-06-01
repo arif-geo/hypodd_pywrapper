@@ -5,9 +5,8 @@ c MEV:   Max number of events.
 c MSTA:  Max number of stations.
 c MOBS:  Max number of phases (P&S) per eventer event.
 
-	integer	MEV, MSTA, MOBS
+        integer MEV, MSTA, MOBS
 
-	parameter(MEV=    12000,    
-     &		MSTA=   2600,		
-     &		MOBS=   1000)
-
+        parameter(MEV=    50000,    
+     &          MSTA=   2600,
+     &          MOBS=   1000)
