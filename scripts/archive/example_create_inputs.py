@@ -2,7 +2,7 @@
 Example usage of create_hypodd_inputs module
 """
 
-from create_hypodd_inputs import (
+from hypodd_pywrapper.scripts.archive.create_hypodd_inputs import (
     create_ph2dt_inp,
     create_hypodd_inp,
     create_hypodd_inp_both

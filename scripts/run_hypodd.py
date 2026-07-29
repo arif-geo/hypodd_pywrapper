@@ -1,8 +1,8 @@
 import os
 import subprocess
 import sys
-from csv_hypodd import csv_to_pha, csv_to_cc, daughter_csv_to_cc, create_event_id_mapping, create_station_file, load_catalog, reloc_to_csv
-from compare_utils import compare_relocations, run_comparison_test
+from hypodd_pywrapper.scripts.csv_hypodd import csv_to_pha, csv_to_cc, daughter_csv_to_cc, create_event_id_mapping, create_station_file, load_catalog, reloc_to_csv
+from hypodd_pywrapper.scripts.compare_utils import compare_relocations, run_comparison_test
 
 # Paths
 script_dir  = os.path.dirname(os.path.abspath(__file__))
