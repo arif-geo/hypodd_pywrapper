@@ -24,11 +24,35 @@ Two known producers, sharing no code with each other or with this package:
 
 ## Setup
 
+Every command below runs from the **repo root** — the directory holding `pyproject.toml`.
+
 ```bash
-cd HypoDD-2.1b/src && make          # builds ph2dt and hypoDD
-pip install -e .                    # or: export PYTHONPATH=<repo>/src
-pytest tests/ -q                    # ~14 s, includes a real hypoDD inversion
+cd /N/u/mdaislam/Quartz/Arif-projects/hypodd_pywrapper
+
+( cd HypoDD-2.1b/src && make )       # builds ph2dt + hypoDD. Parentheses = subshell, so
+                                     # the cd is undone and you stay at the repo root.
+python -m pip install -e . --no-deps # `.` is the repo root — that is why the cd matters
+pytest tests/ -q                     # ~14 s, includes a real hypoDD inversion
 ```
+
+`python -m pip` rather than `pip`: a conda env that has been moved or copied keeps a stale
+shebang in `bin/pip` and fails with `bad interpreter`. `--no-deps` because pandas/numpy/pyyaml
+are already present, and letting pip resolve them can upgrade numpy out from under obspy/numba.
+
+**Once per env** — the `hypodd-run` command is written into that env's `bin/`, so a new env has
+no `hypodd-run` until you install into it. `-e` points the env at this source tree rather than
+copying it, so every env stays in sync and editing the code takes effect immediately.
+
+If you would rather not install at all, this needs nothing and works from any directory:
+
+```bash
+( cd /N/u/.../hypodd_pywrapper/HypoDD-2.1b/src && make )
+
+PYTHONPATH=/N/u/mdaislam/Quartz/Arif-projects/hypodd_pywrapper/src \
+  python -m hypodd_run.cli --config <run>.yaml validate
+```
+
+You get the code but not the `hypodd-run` command; use `python -m hypodd_run.cli` in its place.
 
 ## The contract
 
