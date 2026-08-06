@@ -159,7 +159,16 @@ def load_stations(path):
     return df
 
 
-def summarise(events, arrivals, pairs=None):
+def check_stations(arrivals, stations):
+    """Arrivals at stations absent from the inventory.
+
+    Not fatal — ph2dt reports these as `phases at stations not in station list` and skips
+    them — but silent data loss, so `validate` must say so before a run rather than after.
+    """
+    return sorted(set(arrivals.station) - set(stations.station))
+
+
+def summarise(events, arrivals, pairs=None, stations=None):
     """One-line-per-table summary, printed by `validate`."""
     out = [f'events   : {len(events):>9,}',
            f'arrivals : {len(arrivals):>9,}  '
@@ -168,4 +177,12 @@ def summarise(events, arrivals, pairs=None):
     if pairs is not None:
         n_pair = pairs.groupby(['ev1', 'ev2']).ngroups
         out.append(f'pairs    : {len(pairs):>9,}  over {n_pair:,} event pairs')
+    if stations is not None:
+        orphan = check_stations(arrivals, stations)
+        out.append(f'stations : {len(stations):>9,}')
+        if orphan:
+            n = int(arrivals.station.isin(orphan).sum())
+            out.append(f'\nWARNING: {len(orphan)} station(s) appear in arrivals but not in the '
+                       f'inventory: {orphan[:8]}\n         {n:,} arrivals will be silently '
+                       f'skipped by ph2dt. Fix the producer or the station file.')
     return '\n'.join(out)

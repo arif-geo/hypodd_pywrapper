@@ -54,8 +54,8 @@ def _load_tables(cfg, need_pairs):
 
 def cmd_validate(cfg, _args):
     events, arrivals, pairs = _load_tables(cfg, True)
-    tables.load_stations(cfg['inputs']['stations'])
-    print(tables.summarise(events, arrivals, pairs))
+    stations = tables.load_stations(cfg['inputs']['stations'])
+    print(tables.summarise(events, arrivals, pairs, stations))
     print('\ncontract OK')
 
 
