@@ -264,3 +264,16 @@ never the expectation.
 `(origin_time, event_id)`; the legacy mapping did not, so no synthetic IDs coincide. Different
 IDs change pair ordering out of ph2dt, LSQR walks a different path, and a few events land on
 opposite sides of a clustering threshold. Judge agreement on location, never on file hashes.
+
+
+Acknowledgements: Huge credit goes to Anthropic-Claude for helping me rewrite old wrapper into this clean wrapper. Plese cite the original HypoDD paper if you use this code:
+
+Waldhauser, Felix, and William L. Ellsworth, A double-difference
+earthquake location algorithm: Method and application to the northern
+Hayward fault, California, Bull. Seism. Soc. Am. 90, 1353-1368, 2000.
+
+Waldhauser, Felix, hypoDD -- A program to compute double-difference
+hypocenter locations, U.S. Geological Survey Open-File Report 01-113, 2001.
+
+and this project:
+(coming soon)
