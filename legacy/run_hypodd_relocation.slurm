@@ -3,8 +3,8 @@
 #SBATCH -J daughter_dd_cc
 #SBATCH -A r00706
 #SBATCH -p general 
-#SBATCH -o /N/u/mdaislam/Quartz/Arif-projects/softwares/hypodd_pywrapper/scripts/logs/hypodd_run.%j.out
-#SBATCH -e /N/u/mdaislam/Quartz/Arif-projects/softwares/hypodd_pywrapper/scripts/logs/hypodd_run.%j.err
+#SBATCH -o /N/u/mdaislam/Quartz/Arif-projects/hypodd_pywrapper/legacy/logs/hypodd_run.%j.out
+#SBATCH -e /N/u/mdaislam/Quartz/Arif-projects/hypodd_pywrapper/legacy/logs/hypodd_run.%j.err
 #SBATCH --mail-type=NONE
 #SBATCH --mail-user=mdaislam@iu.edu
 #SBATCH --nodes=1
@@ -24,7 +24,7 @@ echo "Start time: $(date)"
 echo "=========================================="
 
 # Change to the working directory
-cd /N/u/mdaislam/Quartz/Arif-projects/softwares/hypodd_pywrapper/scripts || exit 1
+cd /N/u/mdaislam/Quartz/Arif-projects/hypodd_pywrapper/legacy || exit 1
 echo "Current pwd: $(pwd)"
 
 source /N/u/mdaislam/Quartz/conda/bin/activate /N/slate/mdaislam/_conda/envs/eqcorrscan

@@ -60,6 +60,11 @@ def run_ph2dt(hypodd_root, run_dir, inp='ph2dt.inp', log_path=None):
 INP_FILE_SLOTS = ['log', 'cc', 'ct', 'eve', 'sta', 'loc', 'reloc', 'stares', 'res', 'srcpar']
 
 
+def _inp_lines(path):
+    return [ln.strip() for ln in open(path)
+            if ln.strip() and not ln.lstrip().startswith('*')]
+
+
 def read_inp_outputs(path):
     """Which files a hypoDD.inp declares.
 
@@ -67,9 +72,16 @@ def read_inp_outputs(path):
     just creates a way for the two to disagree, which reads as "hypoDD succeeded but wrote
     nothing".
     """
-    lines = [ln.strip() for ln in open(path)
-             if ln.strip() and not ln.lstrip().startswith('*')]
-    return dict(zip(INP_FILE_SLOTS, lines[:len(INP_FILE_SLOTS)]))
+    return dict(zip(INP_FILE_SLOTS, _inp_lines(path)[:len(INP_FILE_SLOTS)]))
+
+
+# ph2dt.inp is positional too: station file, then phase file.
+PH2DT_FILE_SLOTS = ['sta', 'pha']
+
+
+def read_ph2dt_inputs(path):
+    """Which files a ph2dt.inp expects to read."""
+    return dict(zip(PH2DT_FILE_SLOTS, _inp_lines(path)[:len(PH2DT_FILE_SLOTS)]))
 
 
 def run_hypodd(hypodd_root, run_dir, inp='hypoDD.inp', reloc=None,

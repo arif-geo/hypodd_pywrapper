@@ -122,34 +122,12 @@ def test_ids_are_stable_across_calls(tmp_path):
     assert writers.assign_ids(ev) == writers.assign_ids(ev.sample(frac=1, random_state=1))
 
 
-# ── regression against the existing ferndale run ───────────────────────────────────
-FERNDALE = os.path.join(os.path.dirname(__file__), '..', 'runs', 'ferndale')
-
-
-def legacy_master_to_tables(master_csv, catalog_csv):
-    """Convert the OLD wide master-picks CSV into the three tables.
-
-    Test-only. Delete once Stage F/G emits the tables directly.
-    """
-    df = pd.read_csv(master_csv, dtype={'event_id': str, 'template_id': str})
-    cat = pd.read_csv(catalog_csv, dtype={'event_id': str})
-
-    events = (df[['event_id', 'origin_time']].drop_duplicates('event_id')
-              .merge(cat[['event_id', 'latitude', 'longitude', 'depth', 'magnitude']],
-                     on='event_id', how='left'))
-    rows = []
-    for phase, col in (('P', 'travel_time_p'), ('S', 'travel_time_s')):
-        sub = df[df[col].notna()][['event_id', 'station', col]].copy()
-        sub.columns = ['event_id', 'station', 'travel_time']
-        sub['phase'] = phase
-        rows.append(sub)
-    return events, pd.concat(rows, ignore_index=True)
-
-
-@pytest.mark.skipif(not os.path.exists(os.path.join(FERNDALE, 'detections.pha')),
-                    reason='ferndale run directory not present')
-def test_ferndale_pha_is_byte_identical(tmp_path):
-    """The acceptance test for the refactor: replaying ferndale's own inputs through the new
-    writers must reproduce its existing detections.pha exactly. If this passes, no existing
-    result changes when the new path replaces the old one."""
-    pytest.skip('enable once a ferndale events/arrivals export exists — see README')
+def test_station_gap_is_reported_not_hidden(tmp_path):
+    """Arrivals at stations missing from the inventory are dropped silently by ph2dt, so
+    `validate` has to say so first."""
+    ev = tables.load_events(_write(tmp_path, 'e.csv', _events()))
+    arr = tables.load_arrivals(_write(tmp_path, 'a.csv', _arrivals()), ev)
+    stations = pd.DataFrame({'station': ['KCT'], 'latitude': [40.47], 'longitude': [-124.33]})
+    st = tables.load_stations(_write(tmp_path, 's.csv', stations))
+    assert tables.check_stations(arr, st) == ['B046']
+    assert 'B046' in tables.summarise(ev, arr, None, st)

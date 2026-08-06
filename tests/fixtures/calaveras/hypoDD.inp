@@ -30,7 +30,7 @@ hypoDD.src
 * IPHA: 1= P; 2= S; 3= P&S
 * DIST:max dist [km] between cluster centroid and station 
 * IDAT   IPHA   MAXDIST  
-    1     3      150 	  
+    2     3      150 	  
 *
 *--- event clustering:
 * OBSCC:    min # of obs/pair for crosstime data (0= no clustering)
@@ -39,7 +39,7 @@ hypoDD.src
 * MAXDIST:  max pair-station distance (-9= not active)
 * MAXGAP:   max azimuthal gap (-9= not active)
 * OBSCC  OBSCT    MINDIST  MAXDIST  MAXGAP
-     8     0        -999     -999    -999 
+     0     12        -999     -999    -999 
 *
 *--- solution control:
 * ISTART:  	1 = from single source; 2 = from network sources
@@ -58,11 +58,11 @@ hypoDD.src
 * DAMP:    		damping (for lsqr only) 
 *       ---  CROSS DATA ----- ----CATALOG DATA ----
 * NITER WTCCP WTCCS WRCC WDCC WTCTP WTCTS WRCT WDCT DAMP
-  5     1.0   0.5   -9   -9    0.0   0.0    -9   -9   80
-  5     1.0   0.5   -9   -9    0.0   0.0    -9   -9   80
-  5     1.0   0.5   -9    5    0.0   0.0    -9   -9   90
-  5     1.0   0.5    6    5    0.0   0.0    -9   -9   90
-  5     1.0   0.5    6    3    0.0   0.0    -9   -9   90
+  5     0.01  0.01  -9   -9    1.0   0.5    -9   -9   80
+  5     0.01  0.01  -9   -9    1.0   0.5     6    4   80
+  5     1.0   0.5   -9    2    0.01  0.005   6    4   90
+  5     1.0   0.5    6    2    0.01  0.005   6    4   90
+  5     1.0   0.5    6    0.3  0.01  0.005   6    4   90
 *
 *--- FORWARD MODEL:
 * IMOD  0= 1D local, layered, P velocity w/ fixed vp/vs ratio (hypoDD1.0);

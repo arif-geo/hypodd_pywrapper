@@ -1,654 +1,242 @@
-# HypoDD Python Wrapper - Complete Guide
+# hypodd_run
 
-**Template Matching → HypoDD Double-Difference Earthquake Relocation**
+A domain-agnostic bridge between tabular earthquake data and hypoDD.
 
-A comprehensive Python wrapper for running HypoDD earthquake relocation using template matching detection results, without leaving Python.
-
----
-
-## Table of Contents
-
-1. [Quick Start](#quick-start)
-2. [Installation & Setup](#installation--setup)
-3. [Directory Structure](#directory-structure)
-4. [Theoretical Background](#theoretical-background)
-5. [Complete Workflow](#complete-workflow)
-6. [Command Reference](#command-reference)
-7. [Critical Parameters](#critical-parameters)
-8. [File Formats](#file-formats)
-9. [Troubleshooting](#troubleshooting)
-10. [Advanced Topics](#advanced-topics)
-
----
-
-## Quick Start
-
-### Prerequisites
-```bash
-conda activate obspy  # Python environment with pandas, numpy
-```
-
-### 30-Second Workflow
-```bash
-cd /path/to/hypodd_pywrapper/scripts
-
-# Option 1: Run full pipeline (default)
-python run_hypodd.py
-
-# Option 2: Step-by-step
-python run_hypodd.py prepare      # Convert CSV to HypoDD format
-python run_hypodd.py ph2dt        # Create differential times
-python run_hypodd.py hypodd       # Run relocation
-python run_hypodd.py convert      # Convert output to CSV
-```
-
-### Available Commands
-```bash
-python run_hypodd.py help                    # Show help
-python run_hypodd.py compile                 # Compile HypoDD Fortran
-python run_hypodd.py example                 # Test with example data
-python run_hypodd.py prepare                 # Convert CSV to HypoDD inputs
-python run_hypodd.py ph2dt                   # Create differential times
-python run_hypodd.py hypodd [inp_file]       # Run relocation
-python run_hypodd.py convert <file> [sfx]    # Convert .reloc to CSV
-python run_hypodd.py compare                 # Compare CC vs catalog methods
-```
-
----
-
-## Installation & Setup
-
-### 1. Clone/Download Repository
-```bash
-git clone https://github.com/your-repo/hypodd_pywrapper.git
-cd hypodd_pywrapper
-```
-
-### 2. Compile HypoDD
-```bash
-cd scripts
-python run_hypodd.py compile
-```
-
-### 3. Test Installation
-```bash
-python run_hypodd.py example
-```
-
----
-
-## Directory Structure
+It knows nothing about templates, daughter detections, match-filter output, or any particular
+catalog's column names. It takes flat tables, writes hypoDD's fixed-format text files, runs
+`ph2dt`/`hypoDD`, and reads the results back. Everything domain-specific lives in whichever
+project *produces* the tables.
 
 ```
-hypodd_pywrapper/
-│
-├── 📚 DOCUMENTATION
-│   └── README.md                    ← YOU ARE HERE
-│
-├── 🔧 SCRIPTS
-│   ├── run_hypodd.py               ← Main workflow automation
-│   ├── csv_hypodd.py                ← Format conversion utilities
-│   └── compare_utils.py             ← Comparison utilities
-│
-├── 📊 DATA
-│   ├── input_csvs/                  ← Your input data
-│   │   ├── nc73818801_fmf_detections_phase_picks.csv
-│   │   ├── stations_*.csv
-│   │   └── yoon_shelly_ferndale-*.csv
-│   │
-│   ├── runs/                        ← Run directories (one per experiment)
-│   │   └── run_detections_2020/
-│   │       ├── 📥 INPUT FILES
-│   │       │   ├── station.dat              (station locations)
-│   │       │   ├── detections.pha           (phase picks - standard)
-│   │       │   ├── detections_cat.pha       (phase picks - lag corrected)
-│   │       │   ├── detections.cc            (cross-correlation data)
-│   │       │   ├── event_id_mapping.csv     (ID lookup table)
-│   │       │   ├── ph2dt.inp                (ph2dt configuration) ⚙️
-│   │       │   ├── hypoDD_cc.inp            (HypoDD config - CC method) ⚙️
-│   │       │   └── hypoDD_cat.inp           (HypoDD config - catalog method) ⚙️
-│   │       │
-│   │       └── 📤 OUTPUT FILES
-│   │           ├── dt.ct                    (catalog differential times)
-│   │           ├── event.dat                (event list)
-│   │           ├── event.sel                (selected events)
-│   │           ├── station.sel              (selected stations)
-│   │           ├── hypoDD.loc               (original locations)
-│   │           ├── hypoDD_cc.reloc          (relocated - CC method)
-│   │           ├── hypoDD_cat.reloc         (relocated - catalog method)
-│   │           └── hypoDD.sta               (station residuals)
-│   │
-│   └── hypoDD_outputs/              ← Final CSV outputs
-│       ├── hypoDD_cc_cc.csv         (CC method - CSV format)
-│       └── hypoDD_cat_cat.csv       (Catalog method - CSV format)
-│
-└── 🏗️ HYPODD SOURCE
-    └── HypoDD-2.1b/
-        ├── src/
-        │   ├── hypoDD/hypoDD       (executable)
-        │   └── ph2dt/ph2dt         (executable)
-        └── examples/example2/       (test data)
+producer project                     this package
+────────────────                     ────────────
+reviewed picks    ─┐
+FMF detections    ─┼─> four CSVs ─>  validate ─> .pha/.cc/station.dat ─> ph2dt ─> hypoDD ─> CSV
+some other catalog─┘
 ```
 
----
+Two known producers, sharing no code with each other or with this package:
 
-## Theoretical Background
+| producer | project |
+|---|---|
+| `make_tables.py` | `mtj_template_reloc` — relocating a reviewed-pick catalog |
+| `H_make_hypodd_tables.py` | `Match-Filter-Event-Detection` — FMF daughters + parents |
 
-### The Template Matching → HypoDD Connection
-
-**What Template Matching Gives You:**
-- **Lag time** between detected event and template at each station
-- **Cross-correlation coefficient** (quality measure)
-
-**What HypoDD Needs:**
-- **Differential times** between event pairs
-- **Weights** for each differential time
-
-**Key Insight:** 
-```
-lag_time = detected_arrival - template_arrival = DIFFERENTIAL TIME!
-```
-
-### Two Equivalent Methods
-
-#### Method 1: Cross-Correlation Only (IDAT=1) ⭐ RECOMMENDED
-- Put lag times (Template-Daughter and Daughter-Daughter) directly in `dt.cc` file
-- HypoDD uses them as highly precise differential times
-- ✅ Theoretically correct
-- ✅ Computationally efficient
-- ✅ Network now includes strong daughter-to-daughter connections, breaking the weak "star topology"
-
-#### Method 2: Catalog Only (IDAT=2)
-- Uses `.pha` files containing absolute travel times.
-- `ph2dt` computes catalog differential times (`dt.ct`) by subtracting arrival times: `dt = TT_event1 - TT_event2`
-- ✅ Mathematically equivalent for basic locations
-- ⚠️ Indirect (extra processing step) and much less precise than CC methods.
-
-### Understanding `.cc` vs `.ct` vs `.pha` Files
-
-- **`.pha` (Phase File)**: Contains absolute arrival times of phases (P, S) at each station for each event. Used mainly for absolute location or to compute catalog differential times.
-- **`.ct` (Catalog Differential Times)**: Generated by the `ph2dt` program. It reads the `.pha` file and subtracts the arrival times of event pairs at common stations to create differential times (`dt.ct`).
-- **`.cc` (Cross-Correlation Differential Times)**: Created directly from cross-correlation lag times (both from Template Matching and Daughter-to-Daughter analysis). These bypass `ph2dt` and are fed directly into HypoDD (`dt.cc`). They represent highly precise delay times between similar waveforms.
-
-**Result:** Both produce similar locations, but the CC method (`.cc`) achieves significantly higher relative precision (often within sub-meter to few meters).
-
-### Why Standard Catalog-Only Fails
-
-**Problem:** Template matching detections have the **same** announced travel times as templates:
-- Template event: 2020-01-01 00:00:00, arrives at station A at 00:00:08 → TT = 8.00s
-- Detected event: 2022-01-01 00:00:00, arrives at station A at 00:00:08 → TT = 8.00s
-
-**Result:** When ph2dt computes `dt = TT₁ - TT₂ = 8.00 - 8.00 = 0.00` → No relocation possible!
-
-**Solution:** Use lag times directly (Method 1) or apply corrections (Method 2)
-
----
-
-## Complete Workflow
-
-### Pipeline Diagram
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ 1. TEMPLATE MATCHING & WAVEFORM CC (Done externally)        │
-│    ↓ Produces: - Template-Daughter phase picks              │
-│                - Daughter-to-Daughter cross-correlation     │
-└─────────────────────────────────────────────────────────────┘
-                           ↓
-┌───────────────────────────────────────────────────────────────────────┐
-│ 2. PREPARE INPUTS                                                     │
-│    Command: python run_hypodd.py prepare                              │
-│    ↓ Creates:                                                         │
-│      - station.dat        (station locations)                         │
-│      - detections.pha     (phase picks - absolute times)              │
-│      - detections.cc      (Template-Daughter & Daughter-Daughter cc)  │
-│      - event_id_mapping.csv (ID lookup to integers)                   │
-└───────────────────────────────────────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────────┐
-│ 3. CREATE DIFFERENTIAL TIMES                                │
-│    Command: python run_hypodd.py ph2dt                      │
-│    ↓ Runs: ph2dt using ph2dt.inp configuration              │
-│    ↓ Creates:                                               │
-│      - dt.ct             (catalog diff times from .pha)     │
-│      - event.dat         (event list)                       │
-│      - event.sel         (selected events after filtering)  │
-│      - station.sel       (selected stations)                │
-│    ⚠️  FILTERING HAPPENS HERE - Check parameters!           │
-└─────────────────────────────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────────┐
-│ 4. RUN RELOCATION                                           │
-│    Command: python run_hypodd.py hypodd                     │
-│    ↓ Runs: hypoDD using hypoDD.inp configuration            │
-│    ↓ Creates:                                               │
-│      - hypoDD.reloc      (relocated event locations)        │
-│      - hypoDD.loc        (original locations for reference) │
-│      - hypoDD.sta        (station residuals)                │
-│    ⚠️  MORE FILTERING HAPPENS HERE - Check OBSCC!           │
-└─────────────────────────────────────────────────────────────┘
-                           ↓
-┌─────────────────────────────────────────────────────────────┐
-│ 5. CONVERT TO CSV                                           │
-│    Command: python run_hypodd.py convert                    │
-│    ↓ Creates: hypoDD_*.csv with original event IDs          │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Understanding Event Filtering
-
-Example: **23 events** → Only **8 relocated**
-
-```
-INPUT: 23 events
-   ↓
-ph2dt filters based on connectivity
-   ↓ MINLNK=8, MINOBS=8 (TOO STRICT!)
-   ↓
-8 events selected (weakly linked events removed)
-   ↓
-HypoDD clusters events
-   ↓ OBSCC=8 (minimum observations per pair)
-   ↓
-8 events in 1 cluster → RELOCATED ✅
-15 events isolated → NOT RELOCATED ❌
-```
-
----
-
-## Command Reference
-
-### Basic Usage
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| **(no args)** | Run full workflow | `python run_hypodd.py` |
-| `help` | Show help message | `python run_hypodd.py help` |
-| `compile` | Compile HypoDD Fortran | `python run_hypodd.py compile` |
-| `example` | Test with example data | `python run_hypodd.py example` |
-| `prepare` | Convert CSV to inputs | `python run_hypodd.py prepare` |
-| `ph2dt` | Create differential times | `python run_hypodd.py ph2dt` |
-| `hypodd [file]` | Run relocation | `python run_hypodd.py hypodd` |
-| `convert <file>` | Convert to CSV | `python run_hypodd.py convert hypoDD.reloc` |
-| `compare` | Compare methods | `python run_hypodd.py compare` |
-
-### What Each Command Does
-
-| Command | Input Files | Output Files | Purpose |
-|---------|-------------|--------------|---------|
-| `prepare` | CSV files | `.pha`, `.cc`, `.dat` | Convert to HypoDD format |
-| `ph2dt` | `.pha`, `ph2dt.inp` | `dt.ct`, `event.dat` | Create differential times |
-| `hypodd` | `dt.ct/dt.cc`, `hypoDD.inp` | `.reloc`, `.loc` | Relocate events |
-| `convert` | `.reloc`, `event_id_mapping.csv` | `.csv` | Convert to CSV format |
-| `compare` | All | All + comparison stats | Test both methods |
-
----
-
-## Critical Parameters
-
-### 🔴 Parameters Affecting Event Count (HIGHEST IMPACT)
-
-#### 1. ph2dt.inp - Event Selection
+## Setup
 
 ```bash
+cd HypoDD-2.1b/src && make          # builds ph2dt and hypoDD
+pip install -e .                    # or: export PYTHONPATH=<repo>/src
+pytest tests/ -q                    # ~14 s, includes a real hypoDD inversion
+```
+
+## The contract
+
+```
+events.csv    event_id, origin_time, latitude, longitude, depth[, magnitude, eh, ez, rms]
+arrivals.csv  event_id, station, phase, travel_time[, weight]
+pairs.csv     ev1, ev2, station, phase, dt_sec[, weight]     (optional -> dt.cc)
+stations.csv  station, latitude, longitude[, elevation]
+```
+
+`arrivals` is **long form** — one row per event/station/phase. The old wide shape
+(`travel_time_p` + `travel_time_s` on one row) forced every station into a P/S pair and made an
+S-only station awkward; long form handles P-only, S-only and any future phase identically.
+
+In `pairs`, **`dt_sec` is a time, and `weight` is where a correlation coefficient goes.** A
+cross-correlation `dt.cc` is a differential *time* measured by correlation; the coefficient only
+weights it. Putting the coefficient in `dt_sec` produces a run that converges to nonsense.
+
+**Known gap:** hypoDD's `dt.cc` supports a per-pair origin-time correction (OTC) that this
+contract has no column for. Every current producer measures differential times against observed
+picks, where OTC is zero by construction. `readers.read_cc` returns any non-zero OTC it finds as
+a separate value rather than dropping it silently.
+
+## Usage
+
+```bash
+hypodd-run --config <run>.yaml validate     # contract check — cheap, run it first
+hypodd-run --config <run>.yaml prepare      # -> .pha, .cc, station.dat, mapping, .inp
+hypodd-run --config <run>.yaml ph2dt        # -> dt.ct
+hypodd-run --config <run>.yaml hypodd  --run cat
+hypodd-run --config <run>.yaml convert --run cat
+hypodd-run --config <run>.yaml all          # all of the above
+```
+
+Two projects are two YAML files against one code path. Run configs live with the **producer**,
+not here — see `mtj_template_reloc/configs/hypodd_run.yaml` for a documented example. A config
+names `run_dir`, `hypodd_root`, the four input tables, an `inp_dir` of hand-tuned `.inp`
+templates, and one or more named `runs`.
+
+## Layout
+
+```
+src/hypodd_run/     the package
+  tables.py         the contract and its validation
+  writers.py        tables -> hypoDD fixed-format text, and .reloc -> table
+  readers.py        hypoDD fixed-format text -> tables (the inverse; for existing datasets)
+  runner.py         running ph2dt/hypoDD, honestly
+  cli.py            config-driven commands
+tests/              pytest, including hypoDD's own Calaveras example
+legacy/             the superseded FMF-specific path — see legacy/README.md
+HypoDD-2.1b/        upstream hypoDD source, binaries and examples
+```
+
+`runs/` is gitignored working space. Nothing in the repo requires it to exist; `run_dir` in a run
+config points wherever you like.
+
+---
+
+# Reference
+
+## `.pha` vs `.ct` vs `.cc`
+
+- **`.pha`** — absolute arrival times of P and S at each station, per event. Input to `ph2dt`.
+- **`.ct`** — catalog differential times. `ph2dt` reads the `.pha` and subtracts arrival times
+  for event pairs at common stations: `dt = TT₁ − TT₂`. Its precision is bounded by **pick
+  accuracy**.
+- **`.cc`** — cross-correlation differential times, measured directly between waveforms and fed
+  to hypoDD without passing through `ph2dt`. Its precision is bounded by **waveform coherence**,
+  typically one to two samples.
+
+That precision gap, not the correlation values themselves, is why adding `dt.cc` sharpens
+locations.
+
+`IDAT` in `hypoDD.inp` selects which are used: **1** = CC only, **2** = catalog only, **3** =
+both.
+
+## Why catalog-only fails for match-filter detections
+
+Template-matching detections inherit their announced travel times from the template:
+
+```
+template event:  origin 00:00:00, arrival at station A 00:00:08  ->  TT = 8.00 s
+detected event:  origin 00:00:00, arrival at station A 00:00:08  ->  TT = 8.00 s
+```
+
+`ph2dt` then computes `dt = 8.00 − 8.00 = 0.00` and there is nothing to invert. Either put the
+measured lag times directly into `dt.cc` (IDAT=1), or apply the lag correction to the travel
+times before writing the `.pha`. This does **not** apply to an ordinary catalog whose picks were
+measured independently per event — there, IDAT=2 is meaningful, and `mtj_template_reloc` uses it
+as the baseline against which `dt.cc` is judged.
+
+## Parameters that matter most
+
+### `ph2dt.inp` — pair formation
+
+```
 *MINWGHT MAXDIST MAXSEP MAXNGH MINLNK MINOBS MAXOBS
    0      500     15     15     8      8     50
 ```
 
-| Parameter | Current | Effect | Recommended Range | Impact |
-|-----------|---------|--------|-------------------|--------|
-| **MINLNK** | 8 | Min. common stations to be neighbors | 4-6 (relaxed)<br>8-10 (strict) | ⭐⭐⭐ HIGHEST |
-| **MINOBS** | 8 | Min. observations per event pair saved | 4-6 (relaxed)<br>8-10 (strict) | ⭐⭐⭐ HIGHEST |
-| **MAXSEP** | 15 | Max separation (km) | 15-30 | ⭐ Low |
-| **MAXDIST** | 500 | Max station distance (km) | 100-500 | ⭐⭐ Medium |
+| Parameter | Effect | Notes |
+|---|---|---|
+| **MINLNK** | min. common stations for two events to be neighbours | Highest-impact knob. 8 is standard; drop to 4–6 when events have few stations |
+| **MINOBS** | min. observations for a pair to be kept | Same magnitude of effect as MINLNK |
+| **MAXSEP** | max. event separation (km) | 15–30 typical |
+| **MAXDIST** | max. station distance (km) | 100–500 |
+| **MAXNGH** | max. neighbours per event | Interacts with event ordering — see below |
 
-**Why MINLNK and MINOBS are critical:**
-- With **star topology** (all events only linked to template), high values exclude weakly-connected events
-- Lower values = more events included, but possibly lower quality
+Lower MINLNK/MINOBS admit more events at lower link quality. With a star topology (every event
+linked only to a template and not to each other) high values silently discard the weakly
+connected majority. Check how many events have few stations before choosing: in the MTJ run, 494
+events had exactly 3 stations, i.e. at most 6 links, so MINLNK=8 would have dropped all of them.
 
-#### 2. hypoDD.inp - Event Clustering
+### `hypoDD.inp` — clustering and weighting
 
-```bash
+```
 *--- event clustering:
 * OBSCC  OBSCT    MINDIST  MAXDIST  MAXGAP
     8     0        -999     -999    -999
-```
 
-| Parameter | Current | Effect | Recommended Range | Impact |
-|-----------|---------|--------|-------------------|--------|
-| **OBSCC** | 8 | Min. CC observations per pair | 4-6 (relaxed)<br>8-10 (strict) | ⭐⭐⭐ HIGH |
-| **OBSCT** | 0 | Min. catalog observations | 0 (CC-only)<br>4-8 (catalog) | ⭐⭐ Medium |
-
-### 🟡 Parameters Affecting Quality
-
-#### 3. hypoDD.inp - Data Weighting
-
-```bash
 * NITER WTCCP WTCCS WRCC WDCC WTCTP WTCTS WRCT WDCT DAMP
   5     1.0   0.5   -9   -9    0.0   0.0    -9   -9   80
 ```
 
-| Parameter | Effect | Typical Values | Notes |
-|-----------|--------|----------------|-------|
-| **WTCCP/WTCCS** | Weight for CC P/S data | 0.5-1.0 | Higher = trust CC more |
-| **WTCTP/WTCTS** | Weight for catalog P/S | 0.0 (CC-only)<br>0.5-1.0 (catalog) | Set to 0 for CC-only |
-| **WRCC/WRCT** | Residual threshold (sec) | -9 (no limit)<br>3-8 (with limit) | Reject large residuals |
-| **WDCC/WDCT** | Max distance for pairs (km) | -9 (no limit)<br>2-10 (with limit) | Tightens in iterations |
-| **DAMP** | Damping for LSQR solver | 70-100 | Higher = stable, slower |
+| Parameter | Effect | Notes |
+|---|---|---|
+| **OBSCC / OBSCT** | min. CC / catalog observations per pair | Set OBSCT=0 for a CC-only run |
+| **WTCCP / WTCCS** | weight on CC P / S data | Higher trusts CC more |
+| **WTCTP / WTCTS** | weight on catalog P / S | 0.0 for CC-only |
+| **WRCC / WRCT** | residual cutoff (s) | −9 = no limit; tighten in later iteration sets |
+| **WDCC / WDCT** | max. pair distance (km) | −9 = no limit |
+| **DAMP** | LSQR damping | 70–100; higher is more stable and slower |
 
-### Parameter Tuning Strategies
+The weighting block is one line per iteration set, applied in order — the usual pattern is loose
+early sets that let events move, then tight residual and distance cutoffs once they are roughly
+in place.
 
-#### Strategy 1: Maximize Event Count (Aggressive)
-```bash
-# ph2dt.inp
-MINLNK=4  MINOBS=4  MAXSEP=20
+## Relocated CSV columns
 
-# hypoDD.inp
-OBSCC=4
-```
-**Result:** 15-20 events, lower precision
+`convert` writes `hypoDD_<run>.csv` with the `.reloc` columns plus the producer's original ID:
 
-#### Strategy 2: Balance Quality & Quantity (Moderate) ⭐ RECOMMENDED
-```bash
-# ph2dt.inp
-MINLNK=6  MINOBS=6  MAXSEP=20
+| column | meaning |
+|---|---|
+| `event_id` | the producer's own identifier, joined back via `event_id_mapping.csv` |
+| `hypodd_id` | the synthetic integer hypoDD required |
+| `latitude`, `longitude`, `depth` | relocated position (degrees, km) |
+| `x_m`, `y_m`, `z_m` | Cartesian offset from the cluster centroid (m) |
+| `ex_m`, `ey_m`, `ez_m` | formal errors (m) |
+| `n_cc_p`, `n_cc_s`, `n_cat_p`, `n_cat_s` | observation counts behind each event |
+| `rms_cc`, `rms_cat` | RMS residuals |
+| `cluster_id` | hypoDD cluster membership |
 
-# hypoDD.inp
-OBSCC=6
-```
-**Result:** 10-15 events, good quality
-
-#### Strategy 3: High Quality Only (Conservative)
-```bash
-# ph2dt.inp
-MINLNK=8  MINOBS=8  MAXSEP=15
-
-# hypoDD.inp
-OBSCC=8
-```
-**Result:** 8-10 events, high precision
+Events hypoDD could not constrain appear in `.reloc` with `*` or `NaN`; `read_reloc` drops and
+counts them rather than coercing them to a number.
 
 ---
 
-## File Formats
-
-### CSV Output Format
-
-Relocated events are saved in CSV with these columns:
-
-| Column | Description | Units |
-|--------|-------------|-------|
-| `event_id` | Original event ID from input | string |
-| `hypodd_id` | HypoDD integer ID | integer |
-| `latitude` | Relocated latitude | decimal degrees |
-| `longitude` | Relocated longitude | decimal degrees |
-| `depth` | Relocated depth | km |
-| `x_m`, `y_m`, `z_m` | Cartesian offsets from centroid | meters |
-| `ex_m`, `ey_m`, `ez_m` | Location errors | meters |
-| `year`, `month`, `day` | Origin date | integers |
-| `hour`, `minute`, `second` | Origin time | integers, float |
-| `n_cc_p`, `n_cc_s` | Number of CC observations | integer |
-| `rms_cc` | RMS residual for CC data | milliseconds |
-| `cluster_id` | Cluster index | integer |
-| `origin_time` | ISO8601 formatted time | string |
-
-### Reading Output in Python
-
-```python
-import pandas as pd
-
-# Read relocated events
-df = pd.read_csv('hypoDD_outputs/hypoDD_cc_cc.csv')
-
-# Join with original detections
-detections = pd.read_csv('input_csvs/detections.csv')
-merged = detections.merge(df, on='event_id', how='inner')
-
-# Plot relocations
-import matplotlib.pyplot as plt
-plt.scatter(df['longitude'], df['latitude'], c=df['depth'], cmap='viridis_r')
-plt.colorbar(label='Depth (km)')
-plt.xlabel('Longitude')
-plt.ylabel('Latitude')
-plt.title(f'Relocated Events (n={len(df)})')
-plt.show()
-```
-
----
-
-## Troubleshooting
-
-### Problem: Too Few Events Relocated
-
-**Symptoms:**
-```
-# events total = 23
-# events selected = 8
-```
-
-**Diagnosis:**
-1. Check `ph2dt.log`: look for "weakly linked events"
-2. High number = events don't have enough connections
-
-**Solutions:**
-1. **Lower MINLNK and MINOBS** (e.g., from 8 to 4-6)
-2. **Lower OBSCC** in hypoDD.inp
-3. **Increase MAXSEP** if events are far apart
-4. **Check your CC data** - do events have lag times to neighbors?
-
-### Problem: ERROR READING CONTROL PARAMETERS
-
-**Symptoms:**
-```
->>> ERROR READING CONTROL PARAMETERS IN LINE 11
-```
-
-**Cause:** Missing parameters in hypoDD v2.0 format
-
-**Solution:** Your .inp file needs ALL required parameters:
-
-```bash
-# Event Clustering (Line 11) - needs 5 parameters:
-* OBSCC  OBSCT    MINDIST  MAXDIST  MAXGAP
-     4     0        -999     -999    -999
-
-# Solution Control (Line 12) - needs 4 parameters:
-*  ISTART  ISOLV  IAQ  NSET
-    2        2     0     5
-```
-
-**Quick fix:**
-```bash
-cp HypoDD-2.1b/examples/example2/hypoDD.inp your_run/
-# Then edit file paths and parameters
-```
-
-### Problem: hypoDD Runs But No Output
-
-**Symptoms:**
-```
-starting hypoDD...
-(no further output)
-```
-
-**Cause:** HypoDD cannot handle absolute paths for .inp file
-
-**Solution:** The Python wrapper automatically handles this, but if running manually:
-```bash
-# WRONG:
-/path/to/hypoDD /absolute/path/to/hypoDD.inp
-
-# CORRECT:
-cd /path/to/run_dir
-/path/to/hypoDD hypoDD.inp
-```
-
-### Problem: Poor Convergence
-
-**Symptoms:**
-```
-RMS not decreasing
-NaN values in output
-```
-
-**Solutions:**
-1. **Increase DAMP** (try 90-100)
-2. **Check initial locations** - too far from truth?
-3. **Reduce WTCCP/WTCCS** to weight data less aggressively
-4. **Try ISOLV=1 (SVD)** instead of LSQR
-
----
-
-## Advanced Topics
-
-### Running Multiple Parameter Tests
-
-```python
-# test_parameters.py
-import subprocess
-import os
-
-param_sets = [
-    {'name': 'aggressive', 'minlnk': 4, 'minobs': 4, 'obscc': 4},
-    {'name': 'moderate',   'minlnk': 6, 'minobs': 6, 'obscc': 6},
-    {'name': 'conservative', 'minlnk': 8, 'minobs': 8, 'obscc': 8},
-]
-
-for params in param_sets:
-    print(f"Testing: {params['name']}")
-    
-    # Update parameters in .inp files
-    # ... (edit files) ...
-    
-    # Run pipeline
-    subprocess.run(['python', 'run_hypodd.py', 'ph2dt'])
-    subprocess.run(['python', 'run_hypodd.py', 'hypodd'])
-    
-    # Save results
-    os.rename('hypoDD.reloc', f'hypoDD_{params["name"]}.reloc')
-```
-
-### Understanding Star Topology
-
-Template matching creates a **star network**:
-
-```
-Detection 1 ----\
-Detection 2 -----\
-Detection 3 -------> Template Event
-Detection 4 -----/
-Detection 5 ----/
-```
-
-**Limitation:** Events only connected to template, not to each other.
-
-**Solutions:**
-1. **Lower thresholds** to include weak links
-2. **Cross-correlate detections** with each other (advanced)
-3. **Use multiple templates** (if available)
-4. **Accept fewer relocations** with high-quality constraints
-
-### Comparing Methods
-
-```bash
-# Run full comparison
-python run_hypodd.py compare
-
-# Typical differences: 100-300m (acceptable)
-```
-
-### Batch Processing
-
-```bash
-# Process multiple datasets
-for run in run_2020 run_2021 run_2022; do
-    cd data/runs/$run
-    python ../../scripts/run_hypodd.py ph2dt
-    python ../../scripts/run_hypodd.py hypodd
-    python ../../scripts/run_hypodd.py convert
-done
-```
-
----
-
-## Best Practices
-
-### ✅ DO
-
-1. **Start conservative** → Relax parameters gradually
-2. **Check logs** after each step (ph2dt.log, hypoDD.log)
-3. **Version control** your .inp files
-4. **Document parameter choices** in run directory
-5. **Compare methods** (CC vs catalog) to assess consistency
-6. **Plot results** to visually inspect relocations
-7. **Keep original data** - never overwrite input CSVs
-
-### ❌ DON'T
-
-1. **Don't blindly accept default parameters**
-2. **Don't ignore filtering messages** in logs
-3. **Don't trust error estimates** from LSQR (ex_m, ey_m, ez_m)
-4. **Don't expect 100% of events to relocate** (star topology)
-5. **Don't modify .reloc files** manually
-6. **Don't delete event_id_mapping.csv**
-
----
-
-## Quick Reference Card
-
-### Essential Files
-
-| File | Purpose | Edit? |
-|------|---------|-------|
-| `ph2dt.inp` | ph2dt parameters | ✅ YES - Tune MINLNK, MINOBS |
-| `hypoDD.inp` | HypoDD parameters | ✅ YES - Tune OBSCC |
-| `station.dat` | Station locations | ❌ Auto-generated |
-| `detections.pha` | Phase picks | ❌ Auto-generated |
-| `detections.cc` | Lag times | ❌ Auto-generated |
-| `event_id_mapping.csv` | ID lookup | ❌ DO NOT DELETE |
-
-### Parameter Quick Reference
-
-| Want More Events? | ↓ Lower These | Values |
-|-------------------|---------------|--------|
-| MINLNK | ↓ | 4-8 |
-| MINOBS | ↓ | 4-8 |
-| OBSCC | ↓ | 4-8 |
-
-| Want Higher Quality? | ↑ Raise These | Values |
-|----------------------|---------------|--------|
-| MINLNK | ↑ | 8-12 |
-| MINOBS | ↑ | 8-12 |
-| OBSCC | ↑ | 8-12 |
-
-### Quick Commands
-
-```bash
-# Full workflow
-python run_hypodd.py
-
-# Individual steps
-python run_hypodd.py prepare && \
-python run_hypodd.py ph2dt && \
-python run_hypodd.py hypodd && \
-python run_hypodd.py convert
-
-# Check event count
-grep "events selected" data/runs/*/ph2dt.log
-```
-
----
-
-## References & Credits
-
-- **HypoDD**: Waldhauser & Ellsworth (2000), *BSSA* - Double-Difference Earthquake Location
-- **Template Matching**: Various (FMF, EQcorrscan, etc.)
-- **Implementation**: Arif & Claude (October 2025)
-- **HypoDD Manual**: See `HypoDD-2.1b/Doc/`
-
----
-
-**Last Updated:** October 28, 2025  
-**Version:** 3.0 (Consolidated)  
-**Python Version:** 3.10+  
-**Status:** ✅ Production Ready
+# Design rules
+
+**Validation is strict.** The predecessor substituted hardcoded coordinates
+(`lat, lon, depth = 40.5, -124.0, 10.0`) for events it could not resolve, printed a warning, and
+carried on — relocating an event from a fabricated starting point while reporting success.
+Mendocino coordinates in a general-purpose tool is the clearest possible sign that domain
+knowledge had leaked in. A missing location is now an error.
+
+**Self-pairs are rejected.** `csv_to_cc` filtered on `event_id != template_id`; for catalog
+events those are equal by construction, so it matched nothing, fell through to
+`detections = df.copy()`, and wrote `# 1 1` — an event differenced against itself.
+
+**Failures propagate.** The predecessor printed the error and returned, wrapped in a blanket
+`except Exception: print(...)`, so a non-zero exit produced a friendly message and exit code 0.
+`srun ... ph2dt && srun ... hypodd` would then run hypoDD on a `dt.ct` that was never written.
+
+**The `.inp` is the single source of truth for output filenames.** A run config that also names
+them is just a way for the two to disagree, which surfaces as "hypoDD succeeded but wrote
+nothing". `prepare` copies the `.inp` files in and refuses to continue if they disagree with
+`outputs`.
+
+**No module-level constants.** The old `RUN_DIR` carried
+`# ******* POINTING TO NEW RUN DIR *****` and had to be hand-edited per project.
+
+# Tests
+
+`tests/test_contract.py` covers the contract — each test corresponds to a specific failure the
+predecessor produced silently.
+
+`tests/test_calaveras.py` runs against **hypoDD's own bundled example2** (308 Calaveras events,
+13,769 arrivals, 1,961 stations). A domain-agnostic tool should be tested on data it knows
+nothing about, and this is data hypoDD itself ships and validates against. It covers a `.pha`
+round-trip and the full chain, comparing the result to the distributed `hypoDD.reloc`. The
+end-to-end test skips automatically if the binaries are not built.
+
+# Verification
+
+Against the MTJ reviewed-pick relocation (4,508 events, 61,408 arrivals, 6.73M CC observations),
+this package vs. the shell + `csv_hypodd.py` path it replaced:
+
+- Input tables reproduce the legacy build **exactly** — all four tables, all values.
+- `dt.cc` and the event-ID mapping are **byte-identical**; `.pha` and `station.dat` are identical
+  up to line order.
+- Relocated positions agree to a **median 8.4 m** in 3-D, with median nearest-neighbour distance
+  matching to 0.7 m (0.1385 vs 0.1392 km).
+
+Against hypoDD's own published Calaveras result, a catalog-only run here lands within a **median
+36 m** of the distributed `hypoDD.reloc` — which itself used catalog + CC, so exact agreement was
+never the expectation.
+
+**Runs are not bit-reproducible across paths, and that is expected.** `assign_ids` sorts by
+`(origin_time, event_id)`; the legacy mapping did not, so no synthetic IDs coincide. Different
+IDs change pair ordering out of ph2dt, LSQR walks a different path, and a few events land on
+opposite sides of a clustering threshold. Judge agreement on location, never on file hashes.

@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import os
 import sys
+import glob
+import shutil
 import argparse
 
 import yaml
@@ -59,9 +61,55 @@ def cmd_validate(cfg, _args):
     print('\ncontract OK')
 
 
+def _place_inp_files(cfg):
+    """Copy the run's .inp templates into run_dir, then check they agree with `outputs`.
+
+    The .inp files are hand-tuned science settings (IDAT, the weighting schedule, MAXNGH)
+    and belong under version control in the producing project, not in a scratch run dir that
+    gets wiped. Copying them here means a fresh run_dir is runnable.
+
+    The cross-check exists because a config and an .inp that name different files is the
+    failure that reads as "hypoDD succeeded but wrote nothing findable" — the binaries take
+    the .inp's word and never see the config.
+    """
+    src_dir = cfg.get('inp_dir')
+    if not src_dir:
+        return
+    if not os.path.isdir(src_dir):
+        raise SystemExit(f'inp_dir does not exist: {src_dir}')
+    found = sorted(glob.glob(os.path.join(src_dir, '*.inp')))
+    if not found:
+        raise SystemExit(f'inp_dir has no .inp files: {src_dir}')
+    for f in found:
+        shutil.copy2(f, os.path.join(cfg['run_dir'], os.path.basename(f)))
+    print(f'inp files            {len(found)} copied from {src_dir}')
+
+    declared = {}
+    ph2dt = os.path.join(cfg['run_dir'], cfg.get('ph2dt_inp', 'ph2dt.inp'))
+    if os.path.exists(ph2dt):
+        declared['pha'] = (runner.read_ph2dt_inputs(ph2dt).get('pha'), os.path.basename(ph2dt))
+    # Only when a pairs table is configured. hypoDD.inp names a dt.cc positionally even for an
+    # IDAT=2 run that never opens it, so checking it on a catalog-only run would demand the
+    # config name a file that is correctly never written.
+    if cfg['inputs'].get('pairs'):
+        for r in cfg['runs']:
+            p = os.path.join(cfg['run_dir'], r['inp'])
+            if os.path.exists(p):
+                declared.setdefault('cc', (runner.read_inp_outputs(p).get('cc'), r['inp']))
+    for slot, (name, where) in declared.items():
+        want = cfg['outputs'][slot]
+        if name and name != want:
+            raise SystemExit(
+                f'{where} expects {slot} file {name!r} but the config writes {want!r}. '
+                f'Fix one of them — hypoDD reads the .inp and will never see the config.')
+
+
 def cmd_prepare(cfg, _args):
     run_dir = cfg['run_dir']
     os.makedirs(run_dir, exist_ok=True)
+    # Placed and checked FIRST: a name mismatch should cost a second, not the half-minute it
+    # takes to write a 200 MB dt.cc that the run would then ignore.
+    _place_inp_files(cfg)
     events, arrivals, pairs = _load_tables(cfg, True)
     stations = tables.load_stations(cfg['inputs']['stations'])
 

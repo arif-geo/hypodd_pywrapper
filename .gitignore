@@ -1,12 +1,14 @@
-scripts/logs/hypodd_output_archive/
-scripts/logs/*
-runs/*/*.log
-runs/*/*.cc
-runs/*/*.pha
-runs/*/*.ct
-# Specifically ignore log archive folders
-**/hypodd_output_archive/
-# new package build artifacts
+# Run directories are working space, not source. `run_dir` in a run config points wherever you
+# want (slate, scratch, here) — nothing in the repo depends on runs/ existing.
+runs/
+
+# Legacy SLURM output
+legacy/logs/
+
+# Build and cache artifacts
 __pycache__/
 *.egg-info/
-src/**/__pycache__/
+.pytest_cache/
+*.pyc
+
+.DS_Store
