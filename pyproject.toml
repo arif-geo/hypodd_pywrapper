@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hypodd-run"
+version = "0.1.0"
+description = "Convert tabular earthquake data to hypoDD input format and run ph2dt/hypoDD"
+requires-python = ">=3.9"
+dependencies = ["pandas", "numpy", "pyyaml"]
+
+[project.scripts]
+hypodd-run = "hypodd_run.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

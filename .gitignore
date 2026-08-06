@@ -6,3 +6,7 @@ runs/*/*.pha
 runs/*/*.ct
 # Specifically ignore log archive folders
 **/hypodd_output_archive/
+# new package build artifacts
+__pycache__/
+*.egg-info/
+src/**/__pycache__/
