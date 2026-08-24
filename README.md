@@ -71,10 +71,13 @@ In `pairs`, **`dt_sec` is a time, and `weight` is where a correlation coefficien
 cross-correlation `dt.cc` is a differential *time* measured by correlation; the coefficient only
 weights it. Putting the coefficient in `dt_sec` produces a run that converges to nonsense.
 
-**Known gap:** hypoDD's `dt.cc` supports a per-pair origin-time correction (OTC) that this
-contract has no column for. Every current producer measures differential times against observed
-picks, where OTC is zero by construction. `readers.read_cc` returns any non-zero OTC it finds as
-a separate value rather than dropping it silently.
+**On OTC.** hypoDD's `dt.cc` header carries a per-pair origin-time correction, and hypoDD
+subtracts it from every `dt` in that block itself (`getdata.f`: `dt_dt(i) = dt_dt(i) - otc`).
+This contract has no OTC column because it does not need one: producers here measure
+differential travel times directly from their own picks, so OTC is zero by construction. When
+reading a foreign `dt.cc` that does carry one, `readers.read_cc` performs the same subtraction
+up front and hands back `dt_sec` ready to use — identical arithmetic, moved one step earlier,
+nothing lost. Pairs whose OTC is the `-999` sentinel are dropped, exactly as hypoDD drops them.
 
 ## Usage
 
@@ -87,10 +90,72 @@ hypodd-run --config <run>.yaml convert --run cat
 hypodd-run --config <run>.yaml all          # all of the above
 ```
 
-Two projects are two YAML files against one code path. Run configs live with the **producer**,
-not here — see `mtj_template_reloc/configs/hypodd_run.yaml` for a documented example. A config
-names `run_dir`, `hypodd_root`, the four input tables, an `inp_dir` of hand-tuned `.inp`
-templates, and one or more named `runs`.
+A config names `run_dir`, `hypodd_root`, the four input tables, an `inp_dir` of hand-tuned
+`.inp` templates, and one or more named `runs`. Two projects are two YAML files against one code
+path.
+
+### Running the example
+
+A complete working project lives in `examples/quickstart/` — 40 events from hypoDD's own
+Calaveras dataset, with tables, `.inp` files and a config:
+
+```bash
+hypodd-run --config examples/quickstart/example.yaml all
+```
+
+About 13 seconds; relocates all 40 events and agrees with hypoDD's distributed `hypoDD.reloc`
+to a median 44 m. Start there, then copy `example.yaml` as the basis for your own run.
+See `examples/quickstart/README.md`.
+
+### Using it from another project
+
+The normal case: your tables, config and `.inp` files all live in the producing project, and
+this repo supplies only the code and the hypoDD binaries. Nothing needs to be copied in here.
+
+```
+your_project/
+├── configs/
+│   ├── hypodd_run.yaml        <- absolute paths to everything below
+│   └── hypodd_inp/            <- your ph2dt.inp, hypoDD*.inp
+└── results/tables/            <- events/arrivals/pairs/stations.csv from your producer
+```
+
+```yaml
+# your_project/configs/hypodd_run.yaml
+run_dir:     /scratch/you/runs/thisrun          # big intermediates: put them on fast storage
+results_dir: /your_project/results/relocated    # small CSVs: put them where your plots read
+hypodd_root: /path/to/hypodd_pywrapper/HypoDD-2.1b
+
+inputs:
+  events:   /your_project/results/tables/events.csv
+  arrivals: /your_project/results/tables/arrivals.csv
+  pairs:    /your_project/results/tables/pairs.csv
+  stations: /your_project/results/tables/stations.csv
+
+inp_dir: hypodd_inp        # relative paths resolve against THIS FILE, not your shell's cwd
+outputs: {pha: run.pha, cc: run.cc}
+runs:
+  - {name: cc, inp: hypoDD_cc.inp}
+```
+
+```bash
+cd /your_project                       # or anywhere — the config's paths are absolute
+hypodd-run --config configs/hypodd_run.yaml validate
+hypodd-run --config configs/hypodd_run.yaml all
+```
+
+Two live examples: `mtj_template_reloc/configs/hypodd_run.yaml`, and the Stage H tables from
+`Match-Filter-Event-Detection`.
+
+Three things that trip people up:
+
+- **`hypodd-run` is per-env.** The command is written into one conda env's `bin/`. A new env
+  needs its own `python -m pip install -e . --no-deps`. See Setup.
+- **Relative paths in a config resolve against the config file**, not your working directory —
+  so a config is safe to invoke from anywhere. Absolute paths are the norm once the tables live
+  outside this repo.
+- **Run `ph2dt` even for `IDAT=1`.** It writes `event.sel` and `station.sel`, which every
+  `hypoDD.inp` references positionally, not just `dt.ct`.
 
 ## Layout
 
@@ -102,6 +167,7 @@ src/hypodd_run/     the package
   runner.py         running ph2dt/hypoDD, honestly
   cli.py            config-driven commands
 tests/              pytest, including hypoDD's own Calaveras example
+examples/quickstart/  a complete runnable project — start here
 legacy/             the superseded FMF-specific path — see legacy/README.md
 HypoDD-2.1b/        upstream hypoDD source, binaries and examples
 ```
@@ -266,7 +332,8 @@ IDs change pair ordering out of ph2dt, LSQR walks a different path, and a few ev
 opposite sides of a clustering threshold. Judge agreement on location, never on file hashes.
 
 
-Acknowledgements: Huge credit goes to Anthropic-Claude for helping me rewrite old wrapper into this clean wrapper. Plese cite the original HypoDD paper if you use this code:
+**Acknowledgements:** 
+Huge credit goes to Anthropic-Claude for helping me rewrite old wrapper into this clean wrapper. Plese cite the original HypoDD paper if you use this code:
 
 Waldhauser, Felix, and William L. Ellsworth, A double-difference
 earthquake location algorithm: Method and application to the northern
@@ -275,5 +342,5 @@ Hayward fault, California, Bull. Seism. Soc. Am. 90, 1353-1368, 2000.
 Waldhauser, Felix, hypoDD -- A program to compute double-difference
 hypocenter locations, U.S. Geological Survey Open-File Report 01-113, 2001.
 
-and this project:
+And citation for this project: \
 (coming soon)

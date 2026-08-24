@@ -16,8 +16,7 @@ Two levels:
 
 The end-to-end run is IDAT=2 (catalog only) while the shipped answer used catalog + CC. They
 therefore should NOT agree exactly; ~36 m is the honest expectation, and the tolerance below is
-set from that, not from wishful thinking. Catalog-only also sidesteps this example's non-zero
-per-pair OTC, which the pairs contract has no column for (see `readers.read_cc`).
+set from that, not from wishful thinking.
 """
 import os
 import shutil
@@ -78,12 +77,32 @@ def test_station_dat_without_elevation(tmp_path):
 
 
 @has_example
-def test_cc_otc_is_surfaced_not_dropped():
-    """This example relies on a per-pair origin-time correction the pairs contract cannot carry.
-    `read_cc` must hand it back so a caller can notice, rather than silently returning zeros."""
-    pairs, otc = readers.read_cc(os.path.join(EXAMPLE, 'dt.cc'))
-    assert len(pairs) == 99774
+def test_cc_otc_is_folded_into_dt():
+    """hypoDD subtracts the header OTC from every dt itself (getdata.f: `dt_dt = dt_dt - otc`).
+    The pairs contract has no OTC column, so `read_cc` does that subtraction instead — the same
+    arithmetic, moved one step earlier. This example carries non-zero OTC on almost every pair,
+    so it is the file that would expose a mistake."""
+    raw, otc = readers.read_cc(os.path.join(EXAMPLE, 'dt.cc'), fold_otc=False)
+    fold, _ = readers.read_cc(os.path.join(EXAMPLE, 'dt.cc'))
+    assert len(raw) == 99774
     assert sum(1 for v in otc.values() if v != 0.0) > 0.9 * len(otc)
+
+    idx = pd.MultiIndex.from_frame(raw[['ev1', 'ev2']])
+    expected = raw.dt_sec - pd.Series(idx.map(otc), index=raw.index)
+    assert np.allclose(fold.dt_sec, expected, atol=0), 'fold must be exact, not approximate'
+
+
+@has_example
+def test_cc_minus999_pairs_are_dropped(tmp_path):
+    """-999 is hypoDD's sentinel for "no OTC available" and it skips those pairs outright.
+    Folding -999 in as if it were a measurement would shift every dt by 999 seconds."""
+    p = tmp_path / 'dt.cc'
+    p.write_text('# 100 200 0.05\nSTA1 0.011 0.9 P\n'
+                 '# 300 400 -999.0\nSTA1 0.022 0.9 P\n')
+    pairs, otc = readers.read_cc(str(p))
+    assert list(pairs.ev1) == ['100']
+    assert ('300', '400') in otc          # still reported, just not used
+    assert abs(pairs.dt_sec.iloc[0] - (0.011 - 0.05)) < 1e-12
 
 
 def _csv(tmp_path, name, df):

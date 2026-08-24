@@ -4,12 +4,15 @@ Replaces the module-level constants in the old `run_hypodd.py` — including the
 `# ******* POINTING TO NEW RUN DIR *****` that had to be hand-edited per project. A run is
 described entirely by a YAML file, so two projects are two configs against one code path.
 
-    hypodd-run --config runs_config/mtj_reviewed.yaml validate
-    hypodd-run --config runs_config/mtj_reviewed.yaml prepare
-    hypodd-run --config runs_config/mtj_reviewed.yaml ph2dt
-    hypodd-run --config runs_config/mtj_reviewed.yaml hypodd --run cat
-    hypodd-run --config runs_config/mtj_reviewed.yaml convert --run cat
-    hypodd-run --config runs_config/mtj_reviewed.yaml all
+    hypodd-run --config path/to/run.yaml validate
+    hypodd-run --config path/to/run.yaml prepare
+    hypodd-run --config path/to/run.yaml ph2dt
+    hypodd-run --config path/to/run.yaml hypodd --run cat
+    hypodd-run --config path/to/run.yaml convert --run cat
+    hypodd-run --config path/to/run.yaml all
+
+The config may live anywhere — with the producing project is the norm, since it names that
+project's tables. `examples/quickstart/example.yaml` is a complete runnable one.
 """
 from __future__ import annotations
 

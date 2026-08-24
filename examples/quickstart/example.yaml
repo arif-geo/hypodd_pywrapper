@@ -1,0 +1,24 @@
+# Runnable example: a 40-event subset of hypoDD's own Calaveras dataset (examples/example2).
+#
+#   hypodd-run --config examples/quickstart/example.yaml all
+#
+# Paths are relative to THIS FILE, so it works from anywhere. Copy it as the starting point
+# for your own project and swap `inputs` for wherever your producer writes its tables.
+run_dir:     run
+results_dir: run/results
+hypodd_root: ../../HypoDD-2.1b
+
+inputs:
+  events:   tables/events.csv
+  arrivals: tables/arrivals.csv
+  pairs:    tables/pairs.csv
+  stations: tables/stations.csv
+
+inp_dir: inp
+outputs:
+  pha: example.pha
+  cc:  example.cc
+
+ph2dt_inp: ph2dt.inp
+runs:
+  - {name: ccct, inp: hypoDD.inp}     # IDAT=3, catalog + cross-correlation

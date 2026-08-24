@@ -70,27 +70,47 @@ def read_station_dat(path):
     return pd.DataFrame(rows)
 
 
-def read_cc(path):
+def read_cc(path, fold_otc=True):
     """dt.cc -> (pairs, otc).
 
-    NOTE the second return value. hypoDD's dt.cc header carries a per-pair origin-time
-    correction, and the pairs contract has no column for it — every producer here measures
-    differential times against observed picks, where OTC is 0 by construction. A file with
-    non-zero OTC (example2's has 0.057) cannot round-trip through this package without losing
-    it, so the value is handed back explicitly rather than silently dropped.
+    hypoDD applies the header's origin-time correction itself, in getdata.f:
+
+        dt_dt(i) = dt_dt(i) - otc
+
+    With `fold_otc` (the default) that subtraction happens here instead, so `dt_sec` comes back
+    ready for the pairs contract, which has no OTC column. Identical arithmetic — hypoDD then
+    subtracts a zero — so nothing is lost and nothing is approximated. Producers that measure
+    differential travel times directly from their own picks already have OTC = 0 and are
+    unaffected.
+
+    The raw per-pair values are returned either way, so a caller can see what a file carried.
+
+    OTC = -999 is a sentinel meaning "no correction available"; hypoDD skips those pairs
+    outright ("No OTC for ... Pair skiped"). They are dropped here for the same reason, rather
+    than folded as if -999 were a measurement.
     """
     rows, otc = [], {}
     ev1 = ev2 = None
-    with open(path) as f:
-        for line in f:
-            if line.lstrip().startswith('#'):
-                p = line.lstrip()[1:].split()
-                ev1, ev2 = p[0], p[1]
-                otc[(ev1, ev2)] = float(p[2]) if len(p) > 2 else 0.0
-            else:
-                p = line.split()
-                if len(p) < 4 or ev1 is None:
-                    continue
-                rows.append({'ev1': ev1, 'ev2': ev2, 'station': p[0], 'phase': p[3].upper(),
-                             'dt_sec': float(p[1]), 'weight': float(p[2])})
-    return pd.DataFrame(rows), otc
+    for line in open(path):
+        if line.lstrip().startswith('#'):
+            p = line.lstrip()[1:].split()
+            ev1, ev2 = p[0], p[1]
+            otc[(ev1, ev2)] = float(p[2]) if len(p) > 2 else 0.0
+        else:
+            p = line.split()
+            if len(p) < 4 or ev1 is None:
+                continue
+            rows.append({'ev1': ev1, 'ev2': ev2, 'station': p[0], 'phase': p[3].upper(),
+                         'dt_sec': float(p[1]), 'weight': float(p[2])})
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df, otc
+
+    idx = pd.MultiIndex.from_frame(df[['ev1', 'ev2']])
+    skip = {k for k, v in otc.items() if abs(v + 999) < 0.001}
+    if skip:
+        df = df[~idx.isin(skip)].reset_index(drop=True)
+        idx = pd.MultiIndex.from_frame(df[['ev1', 'ev2']])
+    if fold_otc:
+        df['dt_sec'] = df.dt_sec - pd.Series(idx.map(otc), index=df.index).fillna(0.0)
+    return df, otc
