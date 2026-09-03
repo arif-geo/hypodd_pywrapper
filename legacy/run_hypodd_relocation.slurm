@@ -3,10 +3,10 @@
 #SBATCH -J daughter_dd_cc
 #SBATCH -A r00706
 #SBATCH -p general 
-#SBATCH -o /N/u/mdaislam/Quartz/Arif-projects/hypodd_pywrapper/legacy/logs/hypodd_run.%j.out
-#SBATCH -e /N/u/mdaislam/Quartz/Arif-projects/hypodd_pywrapper/legacy/logs/hypodd_run.%j.err
+#SBATCH -o /path/to/hypodd_pywrapper/legacy/logs/hypodd_run.%j.out
+#SBATCH -e /path/to/hypodd_pywrapper/legacy/logs/hypodd_run.%j.err
 #SBATCH --mail-type=NONE
-#SBATCH --mail-user=mdaislam@iu.edu
+#SBATCH --mail-user=you@example.edu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1          
 #SBATCH --cpus-per-task=48
@@ -24,10 +24,10 @@ echo "Start time: $(date)"
 echo "=========================================="
 
 # Change to the working directory
-cd /N/u/mdaislam/Quartz/Arif-projects/hypodd_pywrapper/legacy || exit 1
+cd /path/to/hypodd_pywrapper/legacy || exit 1
 echo "Current pwd: $(pwd)"
 
-source /N/u/mdaislam/Quartz/conda/bin/activate /N/slate/mdaislam/_conda/envs/eqcorrscan
+source /path/to/conda/bin/activate /path/to/envs/eqcorrscan
 echo "Current environment: $(which python)"
 
 

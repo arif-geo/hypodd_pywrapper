@@ -7,9 +7,20 @@ described entirely by a YAML file, so two projects are two configs against one c
     hypodd-run --config path/to/run.yaml validate
     hypodd-run --config path/to/run.yaml prepare
     hypodd-run --config path/to/run.yaml ph2dt
-    hypodd-run --config path/to/run.yaml hypodd --run cat
-    hypodd-run --config path/to/run.yaml convert --run cat
+    hypodd-run --config path/to/run.yaml hypodd
+    hypodd-run --config path/to/run.yaml convert
     hypodd-run --config path/to/run.yaml all
+
+`hypodd`/`convert` do every entry of the config's `runs:` list, in order. To run just one,
+comment the others out — the config is the only place runs are selected. NAME is invented by
+whoever wrote the config: it labels one hypoDD invocation, picks which `.inp` to use, and names
+the output CSV. It does NOT select IDAT; that lives in the `.inp` itself (1 = cross correlation,
+2 = catalog, 3 = both). A config with no `runs:` gets one default entry named `cat`, which is
+only where that name in older examples came from.
+
+    runs:
+      - {name: cc,   inp: hypoDD_cc.inp}      # -> convert writes hypoDD_cc.csv
+      - {name: ctcc, inp: hypoDD_ctcc.inp}    # -> convert writes hypoDD_ctcc.csv
 
 The config may live anywhere — with the producing project is the norm, since it names that
 project's tables. `examples/quickstart/example.yaml` is a complete runnable one.
@@ -139,16 +150,6 @@ def cmd_ph2dt(cfg, _args):
     print('ph2dt OK -> dt.ct')
 
 
-def _runs(cfg, name):
-    rs = cfg['runs']
-    if name:
-        rs = [r for r in rs if r['name'] == name]
-        if not rs:
-            raise SystemExit(f'no run named {name!r} in config '
-                             f'(have: {[r["name"] for r in cfg["runs"]]})')
-    return rs
-
-
 def _reloc_name(cfg, r):
     """The .inp declares its own output name; the config never second-guesses it."""
     return runner.read_inp_outputs(os.path.join(cfg['run_dir'], r['inp'])).get(
@@ -156,7 +157,7 @@ def _reloc_name(cfg, r):
 
 
 def cmd_hypodd(cfg, args):
-    for r in _runs(cfg, args.run):
+    for r in cfg['runs']:
         reloc = _reloc_name(cfg, r)
         print(f'--- run {r["name"]}: {r["inp"]} -> {reloc}')
         runner.run_hypodd(cfg['hypodd_root'], cfg['run_dir'], r['inp'], reloc,
@@ -170,7 +171,7 @@ def cmd_convert(cfg, args):
     ids = writers.assign_ids(events)
     out_dir = cfg.get('results_dir', cfg['run_dir'])
     os.makedirs(out_dir, exist_ok=True)
-    for r in _runs(cfg, args.run):
+    for r in cfg['runs']:
         reloc = os.path.join(cfg['run_dir'], _reloc_name(cfg, r))
         if not os.path.exists(reloc):
             print(f'    {r["name"]}: {reloc} not found, skipping')
@@ -198,7 +199,6 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog='hypodd-run', description=__doc__.split('\n')[0])
     ap.add_argument('--config', required=True)
     ap.add_argument('command', choices=sorted(COMMANDS))
-    ap.add_argument('--run', default=None, help='limit to one named run from `runs:`')
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
     COMMANDS[args.command](cfg, args)     # exceptions propagate: exit code must be honest

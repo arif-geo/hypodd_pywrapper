@@ -27,7 +27,7 @@ Two known producers, sharing no code with each other or with this package:
 Every command below runs from the **repo root** — the directory holding `pyproject.toml`.
 
 ```bash
-cd /N/u/mdaislam/Quartz/Arif-projects/hypodd_pywrapper
+cd /path/to/hypodd_pywrapper
 
 ( cd HypoDD-2.1b/src && make )       # builds ph2dt + hypoDD. Parentheses = subshell, so
                                      # the cd is undone and you stay at the repo root.
@@ -46,9 +46,9 @@ copying it, so every env stays in sync and editing the code takes effect immedia
 If you would rather not install at all, this needs nothing and works from any directory:
 
 ```bash
-( cd /N/u/.../hypodd_pywrapper/HypoDD-2.1b/src && make )
+( cd /path/to/hypodd_pywrapper/HypoDD-2.1b/src && make )
 
-PYTHONPATH=/N/u/mdaislam/Quartz/Arif-projects/hypodd_pywrapper/src \
+PYTHONPATH=/path/to/hypodd_pywrapper/src \
   python -m hypodd_run.cli --config <run>.yaml validate
 ```
 
@@ -81,18 +81,51 @@ nothing lost. Pairs whose OTC is the `-999` sentinel are dropped, exactly as hyp
 
 ## Usage
 
-```bash
-hypodd-run --config <run>.yaml validate     # contract check — cheap, run it first
-hypodd-run --config <run>.yaml prepare      # -> .pha, .cc, station.dat, mapping, .inp
-hypodd-run --config <run>.yaml ph2dt        # -> dt.ct
-hypodd-run --config <run>.yaml hypodd  --run cat
-hypodd-run --config <run>.yaml convert --run cat
-hypodd-run --config <run>.yaml all          # all of the above
 ```
+hypodd-run --config PATH COMMAND
+
+  --config PATH   required. The run config (see below). May live anywhere.
+
+COMMAND is one of:
+  validate   check the four input tables against the contract. Seconds. Run it first.
+  prepare    tables -> .pha, .cc, station.dat, event_id_mapping.csv; copies in the .inp files
+  ph2dt      run ph2dt -> dt.ct, event.sel, station.sel
+  hypodd     run hypoDD for each configured run -> .reloc
+  convert    .reloc -> hypoDD_<name>.csv, joined back to your original event_id
+  all        all five, in that order
+```
+
+### Choosing which runs execute
+
+**The config decides — nothing on the command line does.** `hypodd` and `convert` do every entry
+of `runs:`, in listed order. To run just one, comment the others out.
+
+```yaml
+runs:
+  - {name: cc,   inp: hypoDD_cc.inp}      # IDAT=1 in that .inp -> cross-correlation only
+  - {name: ctcc, inp: hypoDD_ctcc.inp}    # IDAT=3 in that .inp -> catalog + CC
+```
+
+Both listed -> both run. Comment out `cc` -> only `ctcc` runs, and only `hypoDD_ctcc.csv` is
+written. `NAME` is yours: it labels one hypoDD invocation, picks which `.inp` to use, and names
+the output CSV `hypoDD_<name>.csv`.
+
+**Nothing selects IDAT.** It lives on the first data line of the `.inp` file — `1` =
+cross-correlation only, `2` = catalog only, `3` = both — along with the weighting schedule and
+velocity model. The run name only chooses *which `.inp`* to use; what that `.inp` does is up to
+you. Naming a run `cc` and pointing it at an IDAT=2 file is perfectly possible and entirely your
+problem.
+
+If a config declares no `runs:` at all, one is assumed: `{name: cat, inp: hypoDD.inp}`. That
+default is where the name `cat` in older examples came from — short for *catalog*, because that
+single `hypoDD.inp` was an IDAT=2 run. It carries no special meaning in the code.
+
+### The config file
 
 A config names `run_dir`, `hypodd_root`, the four input tables, an `inp_dir` of hand-tuned
 `.inp` templates, and one or more named `runs`. Two projects are two YAML files against one code
-path.
+path. Relative paths inside it resolve against the **config file's own directory**, not your
+shell's working directory, so a config is safe to invoke from anywhere.
 
 ### Running the example
 
