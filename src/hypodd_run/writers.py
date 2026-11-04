@@ -129,7 +129,9 @@ def read_reloc(path, ids=None):
     if ids:
         rev = {v: k for k, v in ids.items()}
         df.insert(0, 'event_id', df.hypodd_id.map(rev))
-    df['origin_time'] = pd.to_datetime(
-        df[['year', 'month', 'day', 'hour', 'minute']].assign(second=df.second.astype(int)),
-        utc=True, errors='coerce')
+    # minute start + fractional seconds; hypoDD's second can fall outside [0, 60) after the
+    # origin-time update, which the timedelta carries into the next/previous minute
+    df['origin_time'] = (pd.to_datetime(df[['year', 'month', 'day', 'hour', 'minute']], utc=True,
+                                        errors='coerce')
+                         + pd.to_timedelta(df.second, unit='s'))
     return df, skipped
